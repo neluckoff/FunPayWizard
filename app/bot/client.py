@@ -1187,7 +1187,7 @@ class TGBot:
                 self.assistant.MAIN_CFG["Telegram"]["groupNotificationsEnabled"] = "1"
                 self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
                 self.group_topics.ensure_group_notifications()
-                Thread(target=self.group_topics._ensure_system_topic_async, daemon=True).start()
+                Thread(target=self.group_topics._ensure_system_topic_if_missing_async, daemon=True).start()
 
         sections = {
             "FunPay": kb.main_settings,

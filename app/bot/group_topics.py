@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import copy
 import logging
 import re
 from threading import Lock, Thread
@@ -21,8 +22,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger("TGBot.group_topics")
 
 CACHE_PATH = "storage/cache/group_topics.json"
+CACHE_VERSION = 2
 # В Telegram заголовок топика без эмодзи; звезда — иконка темы (icon_custom_emoji_id).
 SYSTEM_TOPIC_NAME = "Отзывы и подтверждения заказов"
+DEFAULT_GROUP_TOPICS_CACHE = {
+    "version": CACHE_VERSION,
+    "group_chat_id": None,
+    "topics": {
+        "system": None,
+        "buyers": {},
+    },
+    "thread_by_id": {},
+    "group_status_msg_id": None,
+    "system_topic_icon_emoji_id": None,
+    "pending_pin_thread_id": None,
+}
 SYSTEM_TOPIC_ICON_COLOR = 16766590  # запасной цвет, если emoji-иконка недоступна
 SYSTEM_TOPIC_ICON_EMOJIS = ("⭐", "🌟", "★", "⭐️")
 TOPIC_NAME_MAX_LEN = 128
@@ -45,71 +59,104 @@ class GroupTopicsManager:
         self.tg = tg
         self._system_topic_lock = Lock()
         self._buyer_topics_lock = Lock()
-        self._data = helpers.load_json_cache(CACHE_PATH, {
-            "system_topic_id": None,
-            "buyer_topics": {},
-            "thread_by_id": {},
-        })
-        self._sync_system_topic_storage()
+        self._data = helpers.load_json_cache(
+            CACHE_PATH, copy.deepcopy(DEFAULT_GROUP_TOPICS_CACHE),
+        )
+        self._migrate_cache_data()
 
     @property
     def assistant(self):
         return self.tg.assistant
 
     def _save(self) -> None:
+        self._data["version"] = CACHE_VERSION
         helpers.save_json_cache(CACHE_PATH, self._data)
 
-    def _stored_system_topic_id(self) -> int | None:
-        for source in (
-            self._data.get("system_topic_id"),
-            self.assistant.MAIN_CFG["Telegram"].get("systemTopicId", "").strip(),
-        ):
-            if source is None or source == "":
-                continue
+    def _topics_root(self) -> dict:
+        return self._data.setdefault("topics", {"system": None, "buyers": {}})
+
+    def _buyers(self) -> dict:
+        return self._topics_root().setdefault("buyers", {})
+
+    def _system_thread_id(self) -> int | None:
+        """ID системного топика — только из storage/cache/group_topics.json."""
+        system = self._topics_root().get("system")
+        if isinstance(system, dict) and system.get("thread_id") is not None:
             try:
-                return int(source)
+                return int(system["thread_id"])
             except (TypeError, ValueError):
-                continue
+                pass
+        legacy = self._data.get("system_topic_id")
+        if legacy is not None:
+            try:
+                return int(legacy)
+            except (TypeError, ValueError):
+                pass
         return None
 
-    def _sync_system_topic_storage(self) -> None:
-        """Синхронизирует ID системного топика между кэшем и configs/_main.cfg."""
-        cache_id = self._data.get("system_topic_id")
-        cfg_raw = self.assistant.MAIN_CFG["Telegram"].get("systemTopicId", "").strip()
-        cfg_id = None
-        if cfg_raw:
-            try:
-                cfg_id = int(cfg_raw)
-            except ValueError:
-                cfg_id = None
+    def _migrate_cache_data(self) -> None:
+        """Перенос старых полей и однократный импорт systemTopicId из _main.cfg в storage."""
+        changed = False
+        topics = self._topics_root()
+        topics.setdefault("buyers", {})
 
-        if cache_id and not cfg_id:
-            self.assistant.MAIN_CFG.set("Telegram", "systemTopicId", str(int(cache_id)))
-            self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-        elif cfg_id and not cache_id:
-            self._data["system_topic_id"] = cfg_id
+        legacy_buyers = self._data.pop("buyer_topics", None)
+        if legacy_buyers:
+            topics["buyers"].update(legacy_buyers)
+            changed = True
+
+        legacy_sys = self._data.pop("system_topic_id", None)
+        if legacy_sys and not topics.get("system"):
+            topics["system"] = {
+                "thread_id": int(legacy_sys),
+                "name": SYSTEM_TOPIC_NAME,
+            }
+            changed = True
+
+        if not topics.get("system"):
+            cfg_raw = self.assistant.MAIN_CFG["Telegram"].get("systemTopicId", "").strip()
+            if cfg_raw:
+                try:
+                    topics["system"] = {
+                        "thread_id": int(cfg_raw),
+                        "name": SYSTEM_TOPIC_NAME,
+                    }
+                    changed = True
+                    logger.info(
+                        "Импортирован systemTopicId=%s из конфига в %s.",
+                        cfg_raw, CACHE_PATH,
+                    )
+                except ValueError:
+                    pass
+
+        if self._data.get("version") != CACHE_VERSION:
+            self._data["version"] = CACHE_VERSION
+            changed = True
+
+        if changed:
             self._save()
-        elif cache_id and cfg_id and int(cache_id) != cfg_id:
-            logger.warning(
-                "Разные ID системного топика в кэше (%s) и конфиге (%s), использую кэш.",
-                cache_id, cfg_id,
-            )
-            self.assistant.MAIN_CFG.set("Telegram", "systemTopicId", str(int(cache_id)))
-            self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
 
     def _bind_system_topic(self, thread_id: int) -> None:
-        self._data["system_topic_id"] = thread_id
+        """Сохраняет ID системного топика в storage (единственный источник правды)."""
+        name = SYSTEM_TOPIC_NAME
+        gid = self.group_chat_id()
+        if gid:
+            got = self._get_forum_topic_name(gid, thread_id)
+            if got:
+                name = got
+        self._topics_root()["system"] = {
+            "thread_id": int(thread_id),
+            "name": name,
+        }
+        self._data.pop("system_topic_id", None)
         self._save()
-        self.assistant.MAIN_CFG.set("Telegram", "systemTopicId", str(thread_id))
-        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
+        logger.info("Системный топик записан в storage: thread_id=%s.", thread_id)
 
     def _clear_system_topic_binding(self) -> None:
-        self._data["system_topic_id"] = None
+        self._topics_root()["system"] = None
+        self._data.pop("system_topic_id", None)
         self._data.pop("pending_pin_thread_id", None)
         self._save()
-        if self.assistant.MAIN_CFG.has_option("Telegram", "systemTopicId"):
-            self.assistant.MAIN_CFG.set("Telegram", "systemTopicId", "")
-            self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
 
     @staticmethod
     def _is_topic_missing_error(exc: Exception) -> bool:
@@ -160,27 +207,20 @@ class GroupTopicsManager:
         return None
 
     def _resolve_system_topic_id(self, chat_id: int) -> int | None:
-        """Возвращает ID системного топика только если имя совпадает."""
-        stored = self._stored_system_topic_id()
+        """Сначала storage, затем поиск по имени в группе (без сброса storage)."""
+        stored = self._system_thread_id()
         if stored:
-            name = self._get_forum_topic_name(chat_id, stored)
-            if self._is_system_topic_name(name):
-                return stored
-            if name is not None:
-                logger.warning(
-                    "systemTopicId=%s указывает на топик «%s», а не «%s». Сбрасываю привязку.",
-                    stored, name, SYSTEM_TOPIC_NAME,
-                )
-            else:
-                logger.warning(
-                    "systemTopicId=%s не читается через getForumTopic, ищу топик по имени в группе.",
-                    stored,
-                )
-
+            return stored
         return self._scan_system_topic_by_name(chat_id)
 
     def _find_existing_system_topic(self, chat_id: int) -> int | None:
         return self._resolve_system_topic_id(chat_id)
+
+    def ensure_system_topic_if_missing(self) -> None:
+        """Создаёт системный топик только если в storage ещё нет ID."""
+        if self._system_thread_id():
+            return
+        self.ensure_system_topic(force=True)
 
     def is_enabled(self) -> bool:
         return self.assistant.MAIN_CFG["Telegram"].getboolean("groupTopicsEnabled")
@@ -203,11 +243,11 @@ class GroupTopicsManager:
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
         if enabled:
             self.ensure_group_notifications()
-            Thread(target=self._ensure_system_topic_async, daemon=True).start()
+            Thread(target=self._ensure_system_topic_if_missing_async, daemon=True).start()
 
-    def _ensure_system_topic_async(self) -> None:
+    def _ensure_system_topic_if_missing_async(self) -> None:
         try:
-            self.ensure_system_topic()
+            self.ensure_system_topic_if_missing()
         except Exception:
             logger.warning("Не удалось подготовить системный топик в группе.")
             logger.debug("TRACEBACK", exc_info=True)
@@ -306,7 +346,7 @@ class GroupTopicsManager:
             return
 
         thread_id = m.message_thread_id
-        if not self._data.get("system_topic_id"):
+        if not self._system_thread_id():
             self._bind_system_topic(thread_id)
             logger.info(
                 "Привязан существующий системный топик «%s» (ID %s).", SYSTEM_TOPIC_NAME, thread_id,
@@ -396,20 +436,24 @@ class GroupTopicsManager:
         if not chat_id or (not force and not self._system_topic_needed()):
             return
 
-        self._sync_system_topic_storage()
-
         with self._system_topic_lock:
-            self._sync_system_topic_storage()
-            resolved = self._resolve_system_topic_id(chat_id)
-            if resolved:
-                self._bind_system_topic(resolved)
-                logger.info("Системный топик: ID %s («%s»).", resolved, SYSTEM_TOPIC_NAME)
-                self._update_system_topic_icon(chat_id, resolved)
+            stored = self._system_thread_id()
+            if stored:
+                logger.debug("Системный топик из storage: thread_id=%s.", stored)
+                if force:
+                    self._update_system_topic_icon(chat_id, stored)
                 return
 
-            if self._stored_system_topic_id():
-                self._clear_system_topic_binding()
+            found = self._scan_system_topic_by_name(chat_id)
+            if found:
+                self._bind_system_topic(found)
+                self._update_system_topic_icon(chat_id, found)
+                return
 
+            logger.info(
+                "В %s нет ID системного топика — создаю «%s» один раз.",
+                CACHE_PATH, SYSTEM_TOPIC_NAME,
+            )
             self._data["pending_pin_thread_id"] = True
             self._save()
             self._create_system_topic(chat_id)
@@ -446,26 +490,26 @@ class GroupTopicsManager:
             return False, _("gt_forum_required")
 
         old_id = self.group_chat_id()
+        cached_gid = self._data.get("group_chat_id")
         if old_id and old_id != chat_id:
-            self._data = {
-                "group_chat_id": chat_id,
-                "system_topic_id": None,
-                "buyer_topics": {},
-                "thread_by_id": {},
-            }
-            self._clear_system_topic_binding()
+            self._data = copy.deepcopy(DEFAULT_GROUP_TOPICS_CACHE)
+            self._data["group_chat_id"] = chat_id
+            self._save()
+        elif cached_gid and cached_gid != chat_id:
+            self._data = copy.deepcopy(DEFAULT_GROUP_TOPICS_CACHE)
+            self._data["group_chat_id"] = chat_id
+            self._save()
+        else:
+            self._data["group_chat_id"] = chat_id
+            self._save()
 
         self.assistant.MAIN_CFG.set("Telegram", "groupChatId", str(chat_id))
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-        self._data["group_chat_id"] = chat_id
-        if old_id is not None and old_id != chat_id:
-            self._clear_system_topic_binding()
-        self._save()
 
         self.assistant.MAIN_CFG.set("Telegram", "groupNotificationsEnabled", "1")
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
         self.ensure_group_notifications()
-        Thread(target=self._ensure_system_topic_async, daemon=True).start()
+        Thread(target=self._ensure_system_topic_if_missing_async, daemon=True).start()
         self.assistant.complete_setup_after_group_link()
         return True, _("gt_linked", chat_id)
 
@@ -492,7 +536,7 @@ class GroupTopicsManager:
     def is_buyer_topic(self, thread_id: int | None) -> bool:
         if not thread_id:
             return False
-        system_id = self._data.get("system_topic_id")
+        system_id = self._system_thread_id()
         if system_id and thread_id == system_id:
             return False
         return str(thread_id) in self._data.get("thread_by_id", {})
@@ -513,8 +557,8 @@ class GroupTopicsManager:
 
     def _register_buyer_topic(self, fp_chat_id: int, username: str, thread_id: int) -> None:
         key = str(fp_chat_id)
-        old = self._data.get("buyer_topics", {}).get(key, {})
-        self._data.setdefault("buyer_topics", {})[key] = {
+        old = self._buyers().get(key, {})
+        self._buyers()[key] = {
             "thread_id": thread_id,
             "username": username,
             "pinned_msg_id": old.get("pinned_msg_id"),
@@ -529,7 +573,7 @@ class GroupTopicsManager:
         if not gid:
             return None
 
-        for key, buyer in self._data.get("buyer_topics", {}).items():
+        for key, buyer in self._buyers().items():
             if buyer.get("username") != username:
                 continue
             thread_id = buyer.get("thread_id")
@@ -543,7 +587,7 @@ class GroupTopicsManager:
         for tid in range(2, 501):
             topic_name = self._get_forum_topic_name(gid, tid)
             if topic_name and self._is_buyer_topic_title(topic_name, username):
-                for key, buyer in self._data.get("buyer_topics", {}).items():
+                for key, buyer in self._buyers().items():
                     if buyer.get("thread_id") == tid:
                         try:
                             return int(key), tid
@@ -553,7 +597,7 @@ class GroupTopicsManager:
         return None
 
     def get_buyer_username(self, fp_chat_id: int) -> str | None:
-        buyer = self._data.get("buyer_topics", {}).get(str(fp_chat_id))
+        buyer = self._buyers().get(str(fp_chat_id))
         return buyer.get("username") if buyer else None
 
     def refresh_all_template_panels(self) -> None:
@@ -562,7 +606,7 @@ class GroupTopicsManager:
         gid = self.group_chat_id()
         if not gid:
             return
-        for key, buyer in self._data.get("buyer_topics", {}).items():
+        for key, buyer in self._buyers().items():
             msg_id = buyer.get("templates_msg_id")
             thread_id = buyer.get("thread_id")
             username = buyer.get("username")
@@ -583,7 +627,7 @@ class GroupTopicsManager:
     def _ensure_buyer_topic_pin(self, fp_chat_id: int, username: str, thread_id: int) -> None:
         """Закрепляет в топике короткую панель с кнопкой «Шаблоны»."""
         key = str(fp_chat_id)
-        buyer = self._data.setdefault("buyer_topics", {}).setdefault(key, {
+        buyer = self._buyers().setdefault(key, {
             "thread_id": thread_id,
             "username": username,
         })
@@ -638,7 +682,7 @@ class GroupTopicsManager:
     def show_templates_picker(self, fp_chat_id: int, username: str, thread_id: int) -> None:
         """Отправляет (или обновляет) сообщение со списком шаблонов по кнопке «Шаблоны»."""
         key = str(fp_chat_id)
-        buyer = self._data.setdefault("buyer_topics", {}).setdefault(key, {
+        buyer = self._buyers().setdefault(key, {
             "thread_id": thread_id,
             "username": username,
         })
@@ -687,7 +731,7 @@ class GroupTopicsManager:
                 logger.debug("Не удалось удалить сообщение с шаблонами.", exc_info=True)
 
         key = str(fp_chat_id)
-        buyer = self._data.get("buyer_topics", {}).get(key)
+        buyer = self._buyers().get(key)
         if buyer and buyer.get("templates_msg_id") == message_id:
             buyer.pop("templates_msg_id", None)
             self._save()
@@ -700,7 +744,7 @@ class GroupTopicsManager:
         thread_id: int | None = None
         with self._buyer_topics_lock:
             key = str(fp_chat_id)
-            existing = self._data.get("buyer_topics", {}).get(key)
+            existing = self._buyers().get(key)
             if existing and existing.get("thread_id"):
                 thread_id = int(existing["thread_id"])
                 existing["username"] = username
@@ -834,9 +878,9 @@ class GroupTopicsManager:
             except Exception:
                 if attempt == 0:
                     key = str(fp_chat_id)
-                    buyer = self._data.get("buyer_topics", {}).get(key)
+                    buyer = self._buyers().get(key)
                     if buyer and int(buyer.get("thread_id", 0)) == thread_id:
-                        self._data.get("buyer_topics", {}).pop(key, None)
+                        self._buyers().pop(key, None)
                         self._data.get("thread_by_id", {}).pop(str(thread_id), None)
                         self._save()
                     found = self._find_buyer_topic_by_username(chat_name)
@@ -904,19 +948,17 @@ class GroupTopicsManager:
             kwargs["reply_markup"] = keyboard
 
         for attempt in range(2):
-            self.ensure_system_topic(force=True)
-            thread_id = self._data.get("system_topic_id")
-            if not thread_id:
-                thread_id = self._resolve_system_topic_id(gid)
-                if thread_id:
-                    self._bind_system_topic(thread_id)
+            thread_id = self._system_thread_id()
             if not thread_id:
                 with self._system_topic_lock:
-                    thread_id = self._create_system_topic(gid)
+                    if not self._system_thread_id():
+                        self.ensure_system_topic(force=True)
+                thread_id = self._system_thread_id()
+
             if not thread_id:
                 logger.error(
-                    "Системный топик не найден и не создан (группа %s). Проверьте права бота на темы.",
-                    gid,
+                    "Нет ID системного топика в %s (группа %s). Создайте топик вручную или проверьте права бота.",
+                    CACHE_PATH, gid,
                 )
                 return False
 
@@ -925,12 +967,18 @@ class GroupTopicsManager:
                 return True
             except Exception as exc:
                 logger.error(
-                    "Не удалось отправить уведомление в системный топик (thread %s): %s",
+                    "Не удалось отправить в системный топик thread %s: %s",
                     thread_id, exc,
                 )
                 logger.debug("TRACEBACK", exc_info=True)
                 if attempt == 0 and self._is_topic_missing_error(exc):
-                    self._clear_system_topic_binding()
+                    found = self._scan_system_topic_by_name(gid)
+                    if found:
+                        self._bind_system_topic(found)
+                        continue
+                    with self._system_topic_lock:
+                        self._clear_system_topic_binding()
+                        self._create_system_topic(gid)
                     continue
                 return False
         return False
@@ -965,7 +1013,7 @@ class GroupTopicsManager:
         if not fp_key:
             return
 
-        buyer = self._data["buyer_topics"].get(fp_key)
+        buyer = self._buyers().get(fp_key)
         if not buyer:
             return
 

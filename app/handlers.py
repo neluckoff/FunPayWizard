@@ -696,7 +696,7 @@ def send_bot_started_notification_handler(c: Assistant, *args):
         return
     if c.telegram.group_topics.is_active():
         c.telegram.group_topics.ensure_group_notifications()
-        c.telegram.group_topics.ensure_system_topic()
+        c.telegram.group_topics.ensure_system_topic_if_missing()
     text = _("fpw_init", c.VERSION, c.account.username, c.account.id,
              c.balance.total_rub, c.balance.total_usd, c.balance.total_eur, c.account.active_sales)
     for chat_id, msg_id in c.telegram.init_messages:
