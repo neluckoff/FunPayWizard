@@ -22,13 +22,6 @@ def _skip_ua_kb() -> K:
     return K().add(B(_("setup_skip_ua"), callback_data=cb.SETUP_SKIP_UA))
 
 
-def _group_topics_kb() -> K:
-    return K().row(
-        B(_("setup_gt_yes"), None, cb.SETUP_GROUP_TOPICS_YES),
-        B(_("setup_gt_no"), None, cb.SETUP_GROUP_TOPICS_NO),
-    )
-
-
 class SetupWizard:
     SETUP_STATES = frozenset({cb.SETUP_GOLDEN_KEY, cb.SETUP_USER_AGENT, cb.SETUP_SECRET_KEY})
 
@@ -69,27 +62,6 @@ class SetupWizard:
         self.tg.bot.answer_callback_query(c.id)
         fake = type("Msg", (), {"chat": c.message.chat, "from_user": c.from_user, "text": ""})()
         self._on_user_agent(fake, skip=True)
-
-    def handle_group_topics_choice(self, c: CallbackQuery, enable: bool) -> None:
-        self.tg.bot.answer_callback_query(c.id)
-        self.tg.assistant.awaiting_setup_group_topics = False
-        self.tg.group_topics.set_enabled(enable)
-        if enable:
-            self.tg.assistant.awaiting_setup_group_link = True
-            self.tg.assistant.setup_notify_chat_id = c.message.chat.id
-            self.tg.bot.send_message(c.message.chat.id, _("setup_gt_instructions"))
-            logger.info(
-                "Ожидание привязки группы после настройки (пользователь %s, ID: %s).",
-                c.from_user.username, c.from_user.id,
-            )
-            return
-        self.tg.assistant.awaiting_setup_group_link = False
-        self.tg.assistant.setup_notify_chat_id = None
-        self.tg.bot.send_message(c.message.chat.id, _("setup_done"))
-        logger.info(
-            "Первичная настройка завершена (группа отключена) пользователем %s (ID: %s).",
-            c.from_user.username, c.from_user.id,
-        )
 
     def _begin(self, m: Message) -> None:
         cfg = self.tg.assistant.MAIN_CFG
@@ -155,5 +127,12 @@ class SetupWizard:
             helpers.save_notification_settings(self.tg.notification_settings)
 
         self.tg.clear_state(m.chat.id, m.from_user.id, del_msg=False)
-        self.tg.assistant.awaiting_setup_group_topics = True
-        self.tg.bot.send_message(m.chat.id, _("setup_group_topics_prompt"), reply_markup=_group_topics_kb())
+        self.tg.group_topics.ensure_group_mode_config()
+        self.tg.assistant.awaiting_setup_group_link = True
+        self.tg.assistant.setup_notify_chat_id = m.chat.id
+        self.tg.bot.send_message(m.chat.id, _("setup_group_link_prompt"))
+        self.tg.bot.send_message(m.chat.id, _("setup_gt_instructions"))
+        logger.info(
+            "Ожидание привязки группы (пользователь %s, ID: %s).",
+            m.from_user.username, m.from_user.id,
+        )

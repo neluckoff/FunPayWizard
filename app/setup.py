@@ -22,7 +22,7 @@ DEFAULT_CONFIG = {
         "token": "",
         "secretKey": "",
         "proxy": "",
-        "groupTopicsEnabled": "0",
+        "groupTopicsEnabled": "1",
         "groupChatId": "",
         "groupNotificationsEnabled": "1",
         "systemTopicId": "",
@@ -95,10 +95,12 @@ def create_config_obj(settings: dict) -> ConfigParser:
 
 
 def is_setup_required(cfg: ConfigParser) -> bool:
-    """Настройка не завершена, пока не заданы golden_key и пароль администратора."""
+    """Настройка не завершена: golden key, пароль администратора и привязка группы."""
     if len(cfg["FunPay"]["golden_key"].strip()) != 32:
         return True
     if len(cfg["Telegram"]["secretKey"].strip()) < 4:
+        return True
+    if not cfg["Telegram"].get("groupChatId", "").strip():
         return True
     return False
 

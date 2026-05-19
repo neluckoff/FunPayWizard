@@ -18,7 +18,7 @@
 Секции:
 
 - **FunPay** — golden key, user-agent, автовыдача, поднятие, восстановление лотов
-- **Telegram** — токен, `groupTopicsEnabled`, `groupChatId`, `groupNotificationsEnabled` (дублировать уведомления в группу)
+- **Telegram** — токен, `groupChatId` (обязателен), `groupTopicsEnabled` / `groupNotificationsEnabled` всегда включены
 - **BlockList** — чёрный список и блокировки
 - **Greetings** — приветствие новым покупателям
 - **OrderConfirm** / **ReviewReply** — ответы на подтверждение и отзывы

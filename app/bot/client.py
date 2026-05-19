@@ -244,9 +244,7 @@ class TGBot:
             return False
 
     def group_notifications_enabled(self) -> bool:
-        if not self.group_topics.is_active():
-            return False
-        return self.assistant.MAIN_CFG["Telegram"].getboolean("groupNotificationsEnabled")
+        return self.group_topics.is_active()
 
     def is_notification_enabled_globally(self, notification_type: str) -> bool:
         """Включён ли тип в общих настройках (личка = группа)."""
@@ -395,7 +393,7 @@ class TGBot:
             return
         if str(m.chat.id) in self.notification_settings:
             return
-        if m.chat.type in ("supergroup", "group") and self.group_topics.is_enabled():
+        if m.chat.type in ("supergroup", "group"):
             return
         if m.chat.type != "private" or m.chat.id in self.authorized_users:
             self.notification_settings[str(m.chat.id)] = self.__default_notification_settings
@@ -874,32 +872,24 @@ class TGBot:
         except IndexError:
             username = None
 
-        if self.group_topics.is_active() and username:
-            if self.group_topics.open_buyer_topic_for_reply(node_id, username, c.from_user.id):
-                self.bot.answer_callback_query(c.id, _("gt_topic_open_alert"))
-                return
+        if not username:
+            self.bot.answer_callback_query(c.id)
+            return
+
+        if not self.group_topics.is_active():
+            self.bot.answer_callback_query(c.id, _("gt_no_group_linked"), show_alert=True)
+            return
+
+        link = self.group_topics.open_buyer_topic_for_reply(node_id, username)
+        if link:
+            self.bot.answer_callback_query(c.id, _("gt_topic_open_alert"), url=link)
+        else:
             self.bot.answer_callback_query(c.id, _("gt_topic_open_failed"), show_alert=True)
 
-        result = self.bot.send_message(c.message.chat.id, _("enter_msg_text"), reply_markup=presets.CLEAR_STATE_BTN())
-        self.set_state(c.message.chat.id, result.id, c.from_user.id,
-                       cb.SEND_FP_MESSAGE, {"node_id": node_id, "username": username})
-        self.bot.answer_callback_query(c.id)
-
     def send_funpay_message(self, message: Message):
-        """
-        Отправляет сообщение в чат FunPay.
-        """
-        data = self.get_state(message.chat.id, message.from_user.id)["data"]
-        node_id, username = data["node_id"], data["username"]
+        """Сбрасывает устаревшее состояние «ответ в личке» — ответы только из топика группы."""
         self.clear_state(message.chat.id, message.from_user.id, True)
-        response_text = message.text.strip()
-        result = self.assistant.send_message(node_id, response_text, username)
-        if result:
-            self.bot.reply_to(message, _("msg_sent", node_id, username),
-                              reply_markup=kb.reply(node_id, username, again=True, extend=True))
-        else:
-            self.bot.reply_to(message, _("msg_sending_error", node_id, username),
-                              reply_markup=kb.reply(node_id, username, again=True, extend=True))
+        self.bot.reply_to(message, _("gt_no_group_linked"))
 
     def act_upload_image(self, m: Message):
         """
@@ -1182,13 +1172,6 @@ class TGBot:
         section, option = split[1], split[2]
         self.assistant.MAIN_CFG[section][option] = str(int(not int(self.assistant.MAIN_CFG[section][option])))
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-        if section == "Telegram" and option == "groupTopicsEnabled":
-            if self.assistant.MAIN_CFG["Telegram"].getboolean("groupTopicsEnabled"):
-                self.assistant.MAIN_CFG["Telegram"]["groupNotificationsEnabled"] = "1"
-                self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-                self.group_topics.ensure_group_notifications()
-                Thread(target=self.group_topics._ensure_system_topic_if_missing_async, daemon=True).start()
-
         sections = {
             "FunPay": kb.main_settings,
             "BlockList": kb.blacklist_settings,
@@ -1217,24 +1200,6 @@ class TGBot:
             else kb.notifications_settings
         self.bot.edit_message_reply_markup(c.message.chat.id, c.message.id,
                                            reply_markup=keyboard(self.assistant, pm_chat_id))
-        self.bot.answer_callback_query(c.id)
-
-    def toggle_group_notifications(self, c: CallbackQuery):
-        """Переключатель «Все уведомления в группу»."""
-        if not self.group_topics.is_active():
-            self.bot.answer_callback_query(c.id, _("gt_no_group_linked"), show_alert=True)
-            return
-        tg = self.assistant.MAIN_CFG["Telegram"]
-        tg["groupNotificationsEnabled"] = str(int(not tg.getboolean("groupNotificationsEnabled")))
-        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-        self._migrate_notification_settings()
-
-        pm_chat_id = self.primary_notification_chat_id() or c.message.chat.id
-        self.bot.edit_message_reply_markup(
-            c.message.chat.id,
-            c.message.id,
-            reply_markup=kb.notifications_settings(self.assistant, pm_chat_id),
-        )
         self.bot.answer_callback_query(c.id)
 
     def open_settings_section(self, c: CallbackQuery):
@@ -1356,14 +1321,6 @@ class TGBot:
             self.setup_wizard.handle_skip_user_agent,
             lambda c: c.data == cb.SETUP_SKIP_UA and self._setup_active(c.message.chat.id, c.from_user.id),
         )
-        self.cbq_handler(
-            lambda c: self.setup_wizard.handle_group_topics_choice(c, True),
-            lambda c: c.data == cb.SETUP_GROUP_TOPICS_YES,
-        )
-        self.cbq_handler(
-            lambda c: self.setup_wizard.handle_group_topics_choice(c, False),
-            lambda c: c.data == cb.SETUP_GROUP_TOPICS_NO,
-        )
         self.cbq_handler(self.param_disabled, lambda c: c.data.startswith(cb.PARAM_DISABLED))
         self.msg_handler(self.run_file_handlers, content_types=["photo", "document"], func=lambda m: self.is_file_handler(m))
 
@@ -1433,7 +1390,6 @@ class TGBot:
         self.cbq_handler(self.open_settings_section, lambda c: c.data.startswith(f"{cb.CATEGORY}:"))
         self.cbq_handler(self.switch_param, lambda c: c.data.startswith(f"{cb.SWITCH}:"))
         self.cbq_handler(self.switch_chat_notification, lambda c: c.data.startswith(f"{cb.SWITCH_TG_NOTIFICATIONS}:"))
-        self.cbq_handler(self.toggle_group_notifications, lambda c: c.data.startswith(f"{cb.TOGGLE_GROUP_NOTIFICATIONS}:"))
         self.cbq_handler(self.power_off, lambda c: c.data.startswith(f"{cb.SHUT_DOWN}:"))
         self.cbq_handler(self.cancel_power_off, lambda c: c.data == cb.CANCEL_SHUTTING_DOWN)
         self.cbq_handler(self.cancel_action, lambda c: c.data == cb.CLEAR_STATE)
@@ -1504,30 +1460,15 @@ class TGBot:
         if keyboard is not None:
             kwargs["reply_markup"] = keyboard
 
-        if self.group_notifications_enabled():
+        if self.group_topics.is_active():
             self._send_group_notification(text, keyboard, notification_type, photo, pin, kwargs)
             return
 
-        for chat_id in self.notification_settings:
-            if self._is_group_chat_key(chat_id):
-                continue
-            if not self.is_notification_enabled(chat_id, notification_type):
-                continue
+        if notification_type == helpers.NotificationTypes.bot_start:
+            self.send_private_notification(text, notification_type)
+            return
 
-            try:
-                if photo:
-                    msg = self.bot.send_photo(chat_id, photo, text, **kwargs)
-                else:
-                    msg = self.bot.send_message(chat_id, text, **kwargs)
-
-                if notification_type == helpers.NotificationTypes.bot_start:
-                    self.init_messages.append((msg.chat.id, msg.id))
-
-                if pin:
-                    self.bot.pin_chat_message(msg.chat.id, msg.id)
-            except Exception:
-                logger.error(_("log_tg_notification_error", chat_id))
-                logger.debug("TRACEBACK", exc_info=True)
+        logger.debug("Уведомление «%s» пропущено: группа не привязана.", notification_type)
 
     def add_command_to_menu(self, command: str, help_text: str) -> None:
         """

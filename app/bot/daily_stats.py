@@ -101,7 +101,7 @@ def send_daily_stats(assistant: "Assistant") -> None:
     sales = fetch_all_sales(assistant.account)
     stats = collect_today_stats(sales)
     text = format_daily_stats_message(stats)
-    assistant.telegram.send_private_notification(text, helpers.NotificationTypes.daily_stats)
+    assistant.telegram.send_notification(text, notification_type=helpers.NotificationTypes.daily_stats)
     logger.info(
         "Отправлена дневная сводка: заказов %s, незакрытых %s.",
         stats["orders_today"], stats["unclosed"],

@@ -137,7 +137,6 @@ class Assistant(object):
         self.running = False
         self.run_id = 0
         self.start_time = int(time.time())
-        self.awaiting_setup_group_topics = False
         self.awaiting_setup_group_link = False
         self.setup_notify_chat_id: int | None = None
 
@@ -555,9 +554,12 @@ class Assistant(object):
 
     @property
     def setup_pending(self) -> bool:
-        """Ожидание завершения мастера настройки (включая шаг «Группа с топиками»)."""
-        return (self.setup_mode or self.awaiting_setup_group_topics
-                or self.awaiting_setup_group_link)
+        """Ожидание настройки или привязки группы с топиками."""
+        if self.setup_mode or self.awaiting_setup_group_link:
+            return True
+        if self.telegram and not self.telegram.group_topics.is_active():
+            return True
+        return False
 
     def complete_setup_after_group_link(self) -> None:
         """Завершает мастер настройки после успешной привязки группы."""
@@ -615,6 +617,12 @@ class Assistant(object):
             logger.info("$CYANРежим первичной настройки. Откройте бота в Telegram и следуйте инструкциям.")
             return self
 
+        if self.telegram and not self.telegram.group_topics.is_active():
+            logger.info(
+                "$CYANГруппа с топиками не привязана. В Telegram: /menu → Группа — привяжите супергруппу."
+            )
+            return self
+
         self._init_funpay()
         return self
 
@@ -627,10 +635,10 @@ class Assistant(object):
         self.run_handlers(self.pre_start_handlers, (self,))
 
         if self.setup_pending:
-            logger.info("$CYANОжидание первичной настройки в Telegram...")
+            logger.info("$CYANОжидание привязки группы и завершения настройки в Telegram...")
             while self.setup_pending:
                 time.sleep(0.5)
-            logger.info("$GREENПервичная настройка завершена. Подключаюсь к FunPay...")
+            logger.info("$GREENНастройка завершена. Подключаюсь к FunPay...")
 
         if self.runner is None:
             try:

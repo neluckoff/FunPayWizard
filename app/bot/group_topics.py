@@ -63,6 +63,7 @@ class GroupTopicsManager:
             CACHE_PATH, copy.deepcopy(DEFAULT_GROUP_TOPICS_CACHE),
         )
         self._migrate_cache_data()
+        self.ensure_group_mode_config()
 
     @property
     def assistant(self):
@@ -166,6 +167,14 @@ class GroupTopicsManager:
             for token in ("thread not found", "topic not found", "message thread not found", "forum topic not found")
         )
 
+    @staticmethod
+    def _is_message_missing_error(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(
+            token in msg
+            for token in ("message to edit not found", "message not found", "message_id_invalid", "message can't be found")
+        )
+
     def _get_forum_topic_name(self, chat_id: int, thread_id: int) -> str | None:
         try:
             result = tg_api._make_request(
@@ -222,8 +231,21 @@ class GroupTopicsManager:
             return
         self.ensure_system_topic(force=True)
 
+    def ensure_group_mode_config(self) -> None:
+        """Группа с топиками всегда включена; уведомления — только в группу."""
+        tg = self.assistant.MAIN_CFG["Telegram"]
+        changed = False
+        if not tg.getboolean("groupTopicsEnabled"):
+            tg["groupTopicsEnabled"] = "1"
+            changed = True
+        if not tg.getboolean("groupNotificationsEnabled"):
+            tg["groupNotificationsEnabled"] = "1"
+            changed = True
+        if changed:
+            self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
+
     def is_enabled(self) -> bool:
-        return self.assistant.MAIN_CFG["Telegram"].getboolean("groupTopicsEnabled")
+        return True
 
     def group_chat_id(self) -> int | None:
         raw = self.assistant.MAIN_CFG["Telegram"].get("groupChatId", "").strip()
@@ -236,14 +258,14 @@ class GroupTopicsManager:
         return int(cached) if cached else None
 
     def is_active(self) -> bool:
-        return self.is_enabled() and self.group_chat_id() is not None
+        return self.group_chat_id() is not None
 
-    def set_enabled(self, enabled: bool) -> None:
-        self.assistant.MAIN_CFG["Telegram"]["groupTopicsEnabled"] = "1" if enabled else "0"
-        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-        if enabled:
-            self.ensure_group_notifications()
-            Thread(target=self._ensure_system_topic_if_missing_async, daemon=True).start()
+    def set_enabled(self, enabled: bool = True) -> None:
+        self.ensure_group_mode_config()
+        if not enabled:
+            return
+        self.ensure_group_notifications()
+        Thread(target=self._ensure_system_topic_if_missing_async, daemon=True).start()
 
     def _ensure_system_topic_if_missing_async(self) -> None:
         try:
@@ -253,7 +275,7 @@ class GroupTopicsManager:
             logger.debug("TRACEBACK", exc_info=True)
 
     def _system_topic_needed(self) -> bool:
-        if not self.tg.group_notifications_enabled():
+        if not self.is_active():
             return False
         n = helpers.NotificationTypes
         return (self.tg.is_notification_enabled_globally(n.review) or
@@ -264,8 +286,7 @@ class GroupTopicsManager:
         self.tg._migrate_notification_settings()
 
     def is_system_notification_enabled(self, notification_type: str) -> bool:
-        """Отзывы/подтверждения в системный топик — те же правила, что и для ЛС."""
-        if not self.tg.group_notifications_enabled():
+        if not self.is_active():
             return False
         return self.tg.is_notification_enabled_globally(notification_type)
 
@@ -625,59 +646,51 @@ class GroupTopicsManager:
                 logger.debug("Не удалось обновить клавиатуру шаблонов в топике %s.", username, exc_info=True)
 
     def _ensure_buyer_topic_pin(self, fp_chat_id: int, username: str, thread_id: int) -> None:
-        """Закрепляет в топике короткую панель с кнопкой «Шаблоны»."""
-        key = str(fp_chat_id)
-        buyer = self._buyers().setdefault(key, {
-            "thread_id": thread_id,
-            "username": username,
-        })
-        buyer["thread_id"] = thread_id
-        buyer["username"] = username
+        """Один раз отправляет и закрепляет панель «Шаблоны» в топике покупателя."""
         gid = self.group_chat_id()
-        if not gid:
+        if not gid or gid > 0:
+            logger.error("Панель топика: некорректный group_chat_id=%s.", gid)
             return
 
         text = _("gt_buyer_topic_pin", helpers.escape(username), fp_chat_id)
         markup = keyboards.buyer_topic_bar(self.assistant, fp_chat_id)
-        pinned_id = buyer.get("pinned_msg_id")
+        key = str(fp_chat_id)
 
-        if pinned_id:
+        with self._buyer_topics_lock:
+            buyer = self._buyers().setdefault(key, {
+                "thread_id": thread_id,
+                "username": username,
+            })
+            buyer["thread_id"] = thread_id
+            buyer["username"] = username
+            if buyer.get("pinned_msg_id"):
+                return
+
             try:
-                self.tg.bot.edit_message_text(
-                    text,
+                msg = self.tg.bot.send_message(
                     gid,
-                    pinned_id,
+                    text,
                     message_thread_id=thread_id,
                     reply_markup=markup,
                     parse_mode="HTML",
                     disable_web_page_preview=True,
+                    disable_notification=True,
                 )
-                if self._pin_chat_message(gid, pinned_id, thread_id):
-                    return
-                logger.warning("Панель в топике %s есть, но закрепить не удалось — отправлю заново.", username)
+                buyer["pinned_msg_id"] = msg.message_id
+                self._save()
             except Exception:
-                logger.debug("Не удалось обновить закреплённую панель в топике %s.", username, exc_info=True)
-            buyer.pop("pinned_msg_id", None)
+                logger.warning("Не удалось отправить панель в топик %s.", username)
+                logger.debug("TRACEBACK", exc_info=True)
+                return
 
-        try:
-            msg = self.tg.bot.send_message(
-                gid,
-                text,
-                message_thread_id=thread_id,
-                reply_markup=markup,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-                disable_notification=True,
-            )
-            buyer["pinned_msg_id"] = msg.message_id
-            self._save()
-            if not self._pin_chat_message(gid, msg.message_id, thread_id):
+        if buyer.get("pinned_msg_id"):
+            if not self._pin_chat_message(gid, buyer["pinned_msg_id"], thread_id):
                 logger.warning("Не удалось закрепить панель в топике %s.", username)
             else:
-                logger.debug("Панель закреплена в топике %s (msg %s).", username, msg.message_id)
-        except Exception:
-            logger.warning("Не удалось отправить панель в топик %s.", username)
-            logger.debug("TRACEBACK", exc_info=True)
+                logger.debug(
+                    "Панель закреплена в топике %s (msg %s).",
+                    username, buyer["pinned_msg_id"],
+                )
 
     def show_templates_picker(self, fp_chat_id: int, username: str, thread_id: int) -> None:
         """Отправляет (или обновляет) сообщение со списком шаблонов по кнопке «Шаблоны»."""
@@ -742,12 +755,14 @@ class GroupTopicsManager:
             return None
 
         thread_id: int | None = None
+        need_pin = False
         with self._buyer_topics_lock:
             key = str(fp_chat_id)
             existing = self._buyers().get(key)
             if existing and existing.get("thread_id"):
                 thread_id = int(existing["thread_id"])
                 existing["username"] = username
+                need_pin = not existing.get("pinned_msg_id")
                 self._save()
             else:
                 found = self._find_buyer_topic_by_username(username)
@@ -759,6 +774,7 @@ class GroupTopicsManager:
                             username, thread_id, fp_chat_id,
                         )
                     self._register_buyer_topic(fp_chat_id, username, thread_id)
+                    need_pin = not self._buyers().get(key, {}).get("pinned_msg_id")
                 else:
                     try:
                         topic: ForumTopic = self.tg.bot.create_forum_topic(
@@ -771,12 +787,13 @@ class GroupTopicsManager:
                         return None
 
                     self._register_buyer_topic(fp_chat_id, username, thread_id)
+                    need_pin = True
                     logger.info(
                         "Создан топик для %s (FunPay chat %s, thread %s).",
                         username, fp_chat_id, thread_id,
                     )
 
-        if thread_id:
+        if thread_id and need_pin:
             self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
         return thread_id
 
@@ -802,42 +819,27 @@ class GroupTopicsManager:
             internal = raw.lstrip("-")
         return f"https://t.me/c/{internal}/{thread_id}"
 
-    def open_buyer_topic_for_reply(self, fp_chat_id: int, username: str, admin_user_id: int) -> bool:
+    def open_buyer_topic_for_reply(self, fp_chat_id: int, username: str) -> str | None:
         """
-        Создаёт топик покупателя при необходимости и отправляет админу ссылку на топик.
+        Создаёт/находит топик покупателя в группе.
+        Возвращает ссылку на топик (открыть через answer_callback_query url), без сообщений в ЛС.
         """
         if not self.is_active():
-            return False
+            return None
 
         thread_id = self._get_or_create_buyer_topic(fp_chat_id, username)
         if not thread_id:
-            return False
+            return None
 
         gid = self.group_chat_id()
         if not gid:
-            return False
+            return None
 
-        self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
-
-        link = self.forum_topic_link(gid, thread_id)
-        markup = K().add(B(_("gt_open_topic_btn"), url=link))
-        try:
-            self.tg.bot.send_message(
-                admin_user_id,
-                _("gt_topic_opened", helpers.escape(username)),
-                reply_markup=markup,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            return True
-        except Exception:
-            logger.error("Не удалось отправить ссылку на топик администратору %s.", admin_user_id)
-            logger.debug("TRACEBACK", exc_info=True)
-            return False
+        return self.forum_topic_link(gid, thread_id)
 
     def routes_messages_to_group(self) -> bool:
-        """Переписка с покупателями идёт в группу, а не в личку."""
-        return self.is_active() and self.tg.group_notifications_enabled()
+        """Переписка с покупателями идёт только в группу."""
+        return self.is_active()
 
     def relay_new_message(self, c, fp_chat_id: int, chat_name: str, text: str,
                           events: list) -> bool:
@@ -904,7 +906,7 @@ class GroupTopicsManager:
         """Статус инициализации FPW в General группы (не «бот запущен, ждём FP»)."""
         if not self.is_active():
             return
-        if not self.tg.group_notifications_enabled():
+        if not self.is_active():
             return
         if not self.tg.is_notification_enabled_globally(helpers.NotificationTypes.bot_start):
             return

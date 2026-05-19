@@ -179,7 +179,7 @@ def load_main_config(config_path: str):
                 with open("configs/_main.cfg", "w", encoding="utf-8") as f:
                     config.write(f)
             elif section_name == "Telegram" and param_name == "groupTopicsEnabled" and param_name not in config[section_name]:
-                config.set("Telegram", "groupTopicsEnabled", "0")
+                config.set("Telegram", "groupTopicsEnabled", "1")
                 config.set("Telegram", "groupChatId", "")
                 with open("configs/_main.cfg", "w", encoding="utf-8") as f:
                     config.write(f)

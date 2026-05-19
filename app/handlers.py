@@ -223,15 +223,11 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
     if not text.strip():
         return
 
-    kb = keyboards.reply(chat_id, chat_name, extend=True)
     gt = c.telegram.group_topics
-    if gt.routes_messages_to_group():
+    if gt.is_active():
         gt.relay_new_message(c, chat_id, chat_name, text, events)
-        return
-    if gt.relay_new_message(c, chat_id, chat_name, text, events):
-        return
-    Thread(target=c.telegram.send_notification, args=(text, kb, helpers.NotificationTypes.new_message),
-           daemon=True).start()
+    else:
+        logger.warning("Группа не привязана — уведомление о сообщении от %s пропущено.", chat_name)
 
 
 def send_review_notification(c: Assistant, order: Order, chat_id: int, reply_text: str | None):
@@ -695,7 +691,6 @@ def send_bot_started_notification_handler(c: Assistant, *args):
     if c.telegram is None:
         return
     if c.telegram.group_topics.is_active():
-        c.telegram.group_topics.ensure_group_notifications()
         c.telegram.group_topics.ensure_system_topic_if_missing()
     text = _("fpw_init", c.VERSION, c.account.username, c.account.id,
              c.balance.total_rub, c.balance.total_usd, c.balance.total_eur, c.account.active_sales)

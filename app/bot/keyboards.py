@@ -252,12 +252,8 @@ def review_reply_settings(c: Assistant):
 
 
 def group_topics_settings(c: Assistant) -> K:
-    p = f"{cb.SWITCH}:Telegram"
-    enabled = c.MAIN_CFG["Telegram"].getboolean("groupTopicsEnabled")
-    status = "🟢" if enabled else "🔴"
     gid = c.MAIN_CFG["Telegram"].get("groupChatId", "").strip() or "—"
     kb = K()\
-        .add(B(_("gt_enabled", status), None, f"{p}:groupTopicsEnabled"))\
         .add(B(_("gt_group_id", gid), None, cb.EMPTY))\
         .add(B(_("gt_set_id"), None, cb.EDIT_GROUP_CHAT_ID))\
         .add(B(_("gl_back"), None, cb.MAIN))
@@ -281,10 +277,6 @@ def notifications_settings(c: Assistant, chat_id: int) -> K:
         return '🔔' if c.telegram.is_notification_enabled(store_id, nt) else '🔕'
 
     kb = K()
-    if c.telegram.group_topics.is_active():
-        to_group = c.MAIN_CFG["Telegram"].getboolean("groupNotificationsEnabled")
-        group_mark = "🟢" if to_group else "🔴"
-        kb.add(B(_("ns_all_to_group", group_mark), callback_data=f"{cb.TOGGLE_GROUP_NOTIFICATIONS}:{store_id}"))
     kb.row(B(_("ns_new_msg", l(n.new_message)), None, f"{p}:{n.new_message}"),
              B(_("ns_cmd", l(n.command)), None, f"{p}:{n.command}"))\
         .row(B(_("ns_new_order", l(n.new_order)), None, f"{p}:{n.new_order}"),
