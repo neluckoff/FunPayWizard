@@ -23,7 +23,8 @@ DEFAULT_CONFIG = {
         "secretKey": "",
         "proxy": "",
         "groupTopicsEnabled": "0",
-        "groupChatId": ""
+        "groupChatId": "",
+        "groupNotificationsEnabled": "1"
     },
     "BlockList": {
         "blockDelivery": "0",

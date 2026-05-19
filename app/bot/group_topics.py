@@ -26,23 +26,6 @@ SYSTEM_TOPIC_ICON_COLOR = 16766590  # запасной цвет, если emoji-
 SYSTEM_TOPIC_ICON_EMOJIS = ("⭐", "🌟", "★", "⭐️")
 TOPIC_NAME_MAX_LEN = 128
 
-GROUP_NOTIFICATION_DEFAULTS = {
-    helpers.NotificationTypes.new_message: 1,
-    helpers.NotificationTypes.command: 1,
-    helpers.NotificationTypes.new_order: 1,
-    helpers.NotificationTypes.order_confirmed: 1,
-    helpers.NotificationTypes.review: 1,
-    helpers.NotificationTypes.lots_restore: 1,
-    helpers.NotificationTypes.lots_deactivate: 1,
-    helpers.NotificationTypes.delivery: 1,
-    helpers.NotificationTypes.lots_raise: 1,
-    helpers.NotificationTypes.bot_start: 1,
-    helpers.NotificationTypes.other: 1,
-    helpers.NotificationTypes.ad: 1,
-    helpers.NotificationTypes.announcement: 1,
-}
-
-
 class GroupTopicsManager:
     def __init__(self, tg: "TGBot"):
         self.tg = tg
@@ -90,54 +73,21 @@ class GroupTopicsManager:
             logger.debug("TRACEBACK", exc_info=True)
 
     def _system_topic_needed(self) -> bool:
-        gid = self.group_chat_id()
-        if not gid:
+        if not self.tg.group_notifications_enabled():
             return False
         n = helpers.NotificationTypes
-        return (self.tg.is_notification_enabled(gid, n.review) or
-                self.tg.is_notification_enabled(gid, n.order_confirmed))
-
-    def _apply_group_notification_defaults(self, chat_id: int) -> None:
-        """Полные настройки уведомлений для привязанной группы (нужны для системного топика)."""
-        self.tg.notification_settings[str(chat_id)] = dict(GROUP_NOTIFICATION_DEFAULTS)
-        helpers.save_notification_settings(self.tg.notification_settings)
+        return (self.tg.is_notification_enabled_for_any_private(n.review) or
+                self.tg.is_notification_enabled_for_any_private(n.order_confirmed))
 
     def ensure_group_notifications(self) -> None:
-        """Добавляет группу в notifications.json, если её ещё нет."""
-        if not self.is_active():
-            return
-        gid = self.group_chat_id()
-        if not gid:
-            return
-        key = str(gid)
-        if key not in self.tg.notification_settings:
-            self._apply_group_notification_defaults(gid)
-            return
-        n = helpers.NotificationTypes
-        settings = self.tg.notification_settings[key]
-        changed = False
-        for nt in (n.review, n.order_confirmed, n.new_message):
-            if nt not in settings:
-                settings[nt] = GROUP_NOTIFICATION_DEFAULTS.get(nt, 1)
-                changed = True
-        if changed:
-            helpers.save_notification_settings(self.tg.notification_settings)
+        """Удаляет устаревшие настройки уведомлений для ID группы."""
+        self.tg._migrate_notification_settings()
 
     def is_system_notification_enabled(self, notification_type: str) -> bool:
-        """
-        Нужно ли отправить отзыв/подтверждение в системный топик.
-        Учитывает настройки группы и личных чатов (часто отзывы вкл. только в ЛС).
-        """
-        gid = self.group_chat_id()
-        if gid and self.tg.is_notification_enabled(gid, notification_type):
-            return True
-        for chat_id in self.tg.notification_settings:
-            try:
-                if int(chat_id) > 0 and self.tg.is_notification_enabled(chat_id, notification_type):
-                    return True
-            except ValueError:
-                continue
-        return False
+        """Отзывы/подтверждения в системный топик — те же правила, что и для ЛС."""
+        if not self.tg.group_notifications_enabled():
+            return False
+        return self.tg.is_notification_enabled_for_any_private(notification_type)
 
     def _get_star_icon_emoji_id(self) -> str | None:
         cached = self._data.get("system_topic_icon_emoji_id")
@@ -312,7 +262,9 @@ class GroupTopicsManager:
         self._data["system_topic_id"] = None
         self._save()
 
-        self._apply_group_notification_defaults(chat_id)
+        self.assistant.MAIN_CFG.set("Telegram", "groupNotificationsEnabled", "1")
+        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
+        self.ensure_group_notifications()
         Thread(target=self._ensure_system_topic_async, daemon=True).start()
         self.assistant.complete_setup_after_group_link()
         return True, _("gt_linked", chat_id)
@@ -465,7 +417,9 @@ class GroupTopicsManager:
                           events: list) -> bool:
         if not self.is_active():
             return False
-        if not self.tg.is_notification_enabled(self.group_chat_id(), helpers.NotificationTypes.new_message):
+        if not self.tg.group_notifications_enabled():
+            return False
+        if not self.tg.is_notification_enabled_for_any_private(helpers.NotificationTypes.new_message):
             return False
         if not events:
             return False

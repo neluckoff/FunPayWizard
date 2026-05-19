@@ -79,6 +79,7 @@ class TGBot:
         # }
         #
         self.notification_settings = helpers.load_notification_settings()  # настройки уведомлений.
+        self._migrate_notification_settings()
         self.answer_templates = helpers.load_answer_templates()  # заготовки ответов.
         self.authorized_users = helpers.load_authorized_users()  # авторизированные пользователи.
         self.group_topics = GroupTopicsManager(self)
@@ -177,6 +178,16 @@ class TGBot:
             return False
 
     # Notification settings
+    @staticmethod
+    def _notification_flag(value) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() not in ("0", "false", "")
+        return bool(value)
+
     def is_notification_enabled(self, chat_id: int | str, notification_type: str) -> bool:
         """
         Включен ли указанный тип уведомлений в указанном чате?
@@ -185,9 +196,38 @@ class TGBot:
         :param notification_type: тип уведомлений.
         """
         try:
-            return bool(self.notification_settings[str(chat_id)][notification_type])
+            return self._notification_flag(self.notification_settings[str(chat_id)][notification_type])
         except KeyError:
             return False
+
+    def _migrate_notification_settings(self) -> None:
+        """Убирает устаревшие настройки уведомлений для ID группы (теперь одни правила с ЛС)."""
+        removed = [k for k in self.notification_settings if self._is_group_chat_key(k)]
+        if not removed:
+            return
+        for key in removed:
+            del self.notification_settings[key]
+        helpers.save_notification_settings(self.notification_settings)
+
+    @staticmethod
+    def _is_group_chat_key(chat_id: str) -> bool:
+        try:
+            return int(chat_id) < 0
+        except ValueError:
+            return False
+
+    def group_notifications_enabled(self) -> bool:
+        if not self.group_topics.is_active():
+            return False
+        return self.assistant.MAIN_CFG["Telegram"].getboolean("groupNotificationsEnabled")
+
+    def is_notification_enabled_for_any_private(self, notification_type: str) -> bool:
+        for chat_id in self.notification_settings:
+            if self._is_group_chat_key(chat_id):
+                continue
+            if self.is_notification_enabled(chat_id, notification_type):
+                return True
+        return False
 
     def toggle_notification(self, chat_id: int, notification_type: str) -> bool:
         """
@@ -202,9 +242,10 @@ class TGBot:
         if chat_id not in self.notification_settings:
             self.notification_settings[chat_id] = {}
 
-        self.notification_settings[chat_id][notification_type] = not self.is_notification_enabled(chat_id, notification_type)
+        enabled = not self.is_notification_enabled(chat_id, notification_type)
+        self.notification_settings[chat_id][notification_type] = enabled
         helpers.save_notification_settings(self.notification_settings)
-        return self.notification_settings[chat_id][notification_type]
+        return enabled
 
     # handler binders
     def is_file_handler(self, m: Message):
@@ -1081,6 +1122,8 @@ class TGBot:
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
         if section == "Telegram" and option == "groupTopicsEnabled":
             if self.assistant.MAIN_CFG["Telegram"].getboolean("groupTopicsEnabled"):
+                self.assistant.MAIN_CFG["Telegram"]["groupNotificationsEnabled"] = "1"
+                self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
                 self.group_topics.ensure_group_notifications()
                 Thread(target=self.group_topics._ensure_system_topic_async, daemon=True).start()
 
@@ -1104,12 +1147,31 @@ class TGBot:
 
         result = self.toggle_notification(chat_id, notification_type)
         logger.info(_("log_notification_switched", c.from_user.username, c.from_user.id,
-                      notification_type, c.message.chat.id, result))
+                      notification_type, chat_id, result))
         keyboard = kb.announcements_settings if notification_type in [helpers.NotificationTypes.announcement,
                                                                       helpers.NotificationTypes.ad] \
             else kb.notifications_settings
         self.bot.edit_message_reply_markup(c.message.chat.id, c.message.id,
-                                           reply_markup=keyboard(self.assistant, c.message.chat.id))
+                                           reply_markup=keyboard(self.assistant, chat_id))
+        self.bot.answer_callback_query(c.id)
+
+    def toggle_group_notifications(self, c: CallbackQuery):
+        """Переключатель «Все уведомления в группу»."""
+        if not self.group_topics.is_active():
+            self.bot.answer_callback_query(c.id, _("gt_no_group_linked"), show_alert=True)
+            return
+        tg = self.assistant.MAIN_CFG["Telegram"]
+        tg["groupNotificationsEnabled"] = str(int(not tg.getboolean("groupNotificationsEnabled")))
+        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
+        self._migrate_notification_settings()
+
+        parts = c.data.split(":")
+        pm_chat_id = int(parts[1]) if len(parts) > 1 else c.message.chat.id
+        self.bot.edit_message_reply_markup(
+            c.message.chat.id,
+            c.message.id,
+            reply_markup=kb.notifications_settings(self.assistant, pm_chat_id),
+        )
         self.bot.answer_callback_query(c.id)
 
     def open_settings_section(self, c: CallbackQuery):
@@ -1303,6 +1365,7 @@ class TGBot:
         self.cbq_handler(self.open_settings_section, lambda c: c.data.startswith(f"{cb.CATEGORY}:"))
         self.cbq_handler(self.switch_param, lambda c: c.data.startswith(f"{cb.SWITCH}:"))
         self.cbq_handler(self.switch_chat_notification, lambda c: c.data.startswith(f"{cb.SWITCH_TG_NOTIFICATIONS}:"))
+        self.cbq_handler(self.toggle_group_notifications, lambda c: c.data.startswith(f"{cb.TOGGLE_GROUP_NOTIFICATIONS}:"))
         self.cbq_handler(self.power_off, lambda c: c.data.startswith(f"{cb.SHUT_DOWN}:"))
         self.cbq_handler(self.cancel_power_off, lambda c: c.data == cb.CANCEL_SHUTTING_DOWN)
         self.cbq_handler(self.cancel_action, lambda c: c.data == cb.CLEAR_STATE)
@@ -1342,24 +1405,22 @@ class TGBot:
             kwargs["reply_markup"] = keyboard
 
         n = helpers.NotificationTypes
-        route_system_in_group = (
+        system_routed = False
+        if (
             self.group_topics.is_active()
+            and self.group_notifications_enabled()
             and notification_type in (n.review, n.order_confirmed)
-        )
-        if route_system_in_group:
-            self.group_topics.try_route_notification(text, keyboard, notification_type, photo)
+        ):
+            system_routed = self.group_topics.try_route_notification(
+                text, keyboard, notification_type, photo,
+            )
 
         for chat_id in self.notification_settings:
-            if self.group_topics.is_active() and str(chat_id) == str(self.group_topics.group_chat_id()):
-                if notification_type in (n.review, n.order_confirmed, n.new_message):
-                    continue
-            if route_system_in_group:
-                try:
-                    if int(chat_id) > 0:
-                        continue
-                except ValueError:
-                    pass
+            if self._is_group_chat_key(chat_id):
+                continue
             if not self.is_notification_enabled(chat_id, notification_type):
+                continue
+            if system_routed and notification_type in (n.review, n.order_confirmed):
                 continue
 
             try:
@@ -1373,10 +1434,26 @@ class TGBot:
 
                 if pin:
                     self.bot.pin_chat_message(msg.chat.id, msg.id)
-            except:
+            except Exception:
                 logger.error(_("log_tg_notification_error", chat_id))
                 logger.debug("TRACEBACK", exc_info=True)
-                continue
+
+        if (
+            self.group_topics.is_active()
+            and self.group_notifications_enabled()
+            and notification_type not in (n.review, n.order_confirmed, n.new_message)
+            and self.is_notification_enabled_for_any_private(notification_type)
+        ):
+            gid = self.group_topics.group_chat_id()
+            if gid:
+                try:
+                    if photo:
+                        self.bot.send_photo(gid, photo, text, **kwargs)
+                    else:
+                        self.bot.send_message(gid, text, **kwargs)
+                except Exception:
+                    logger.error(_("log_tg_notification_error", gid))
+                    logger.debug("TRACEBACK", exc_info=True)
 
     def add_command_to_menu(self, command: str, help_text: str) -> None:
         """

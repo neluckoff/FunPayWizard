@@ -164,14 +164,18 @@ def new_message_view_settings(c: Assistant) -> K:
     def l(s):
         return '🟢' if c.MAIN_CFG["NewMessageView"].getboolean(s) else '🔴'
 
-    kb = K()\
-        .row(B(_("mv_incl_my_msg", l("includeMyMessages")), None, f"{p}:includeMyMessages"),
-             B(_("mv_incl_fp_msg", l("includeFPMessages")), None, f"{p}:includeFPMessages"))\
-        .row(B(_("mv_incl_bot_msg", l("includeBotMessages")), None, f"{p}:includeBotMessages"),
-             B(_("mv_only_my_msg", l("notifyOnlyMyMessages")), None, f"{p}:notifyOnlyMyMessages"))\
-        .row(B(_("mv_only_fp_msg", l("notifyOnlyFPMessages")), None, f"{p}:notifyOnlyFPMessages"),
-             B(_("mv_only_bot_msg", l("notifyOnlyBotMessages")), None, f"{p}:notifyOnlyBotMessages"))\
-        .add(B(_("gl_back"), None, cb.MAIN))
+    kb = K()
+    kb.row(
+        B(_("mv_incl_my_msg", l("includeMyMessages")), None, f"{p}:includeMyMessages"),
+        B(_("mv_incl_fp_msg", l("includeFPMessages")), None, f"{p}:includeFPMessages"),
+    )
+    kb.add(B(_("mv_incl_bot_msg", l("includeBotMessages")), callback_data=f"{p}:includeBotMessages"))
+    kb.row(
+        B(_("mv_only_my_msg", l("notifyOnlyMyMessages")), None, f"{p}:notifyOnlyMyMessages"),
+        B(_("mv_only_fp_msg", l("notifyOnlyFPMessages")), None, f"{p}:notifyOnlyFPMessages"),
+    )
+    kb.add(B(_("mv_only_bot_msg", l("notifyOnlyBotMessages")), callback_data=f"{p}:notifyOnlyBotMessages"))
+    kb.add(B(_("gl_back"), None, cb.MAIN))
     return kb
 
 
@@ -259,8 +263,12 @@ def notifications_settings(c: Assistant, chat_id: int) -> K:
     def l(nt):
         return '🔔' if c.telegram.is_notification_enabled(chat_id, nt) else '🔕'
 
-    kb = K()\
-        .row(B(_("ns_new_msg", l(n.new_message)), None, f"{p}:{n.new_message}"),
+    kb = K()
+    if c.telegram.group_topics.is_active():
+        to_group = c.MAIN_CFG["Telegram"].getboolean("groupNotificationsEnabled")
+        group_mark = "🟢" if to_group else "🔴"
+        kb.add(B(_("ns_all_to_group", group_mark), callback_data=f"{cb.TOGGLE_GROUP_NOTIFICATIONS}:{chat_id}"))
+    kb.row(B(_("ns_new_msg", l(n.new_message)), None, f"{p}:{n.new_message}"),
              B(_("ns_cmd", l(n.command)), None, f"{p}:{n.command}"))\
         .row(B(_("ns_new_order", l(n.new_order)), None, f"{p}:{n.new_order}"),
              B(_("ns_order_confirmed", l(n.order_confirmed)), None, f"{p}:{n.order_confirmed}"))\
@@ -272,7 +280,6 @@ def notifications_settings(c: Assistant, chat_id: int) -> K:
              B(_("ns_bot_start", l(n.bot_start)), None, f"{p}:{n.bot_start}"))\
         .add(B(_("ns_daily_stats", l(n.daily_stats)), None, f"{p}:{n.daily_stats}"))\
         .add(B(_("gl_back"), None, cb.MAIN))
-
     return kb
 
 

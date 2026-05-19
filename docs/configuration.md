@@ -8,7 +8,7 @@
 | `configs/_main.cfg` | FunPay, Telegram, приветствия, ЧС, группа |
 | `configs/auto_response.cfg` | Команды автоответа |
 | `configs/auto_delivery.cfg` | Лоты и автовыдача |
-| `storage/cache/` | Уведомления, топики группы, шаблоны, авторизованные пользователи |
+| `storage/cache/` | Уведомления, топики группы, шаблоны, аналитика, авторизованные пользователи |
 | `storage/products/` | Файлы с товарами для выдачи |
 
 Папки `configs/` и `storage/` создаются при первом запуске.
@@ -18,7 +18,7 @@
 Секции:
 
 - **FunPay** — golden key, user-agent, автовыдача, поднятие, восстановление лотов
-- **Telegram** — токен, `groupTopicsEnabled`, `groupChatId`
+- **Telegram** — токен, `groupTopicsEnabled`, `groupChatId`, `groupNotificationsEnabled` (дублировать уведомления в группу)
 - **BlockList** — чёрный список и блокировки
 - **Greetings** — приветствие новым покупателям
 - **OrderConfirm** / **ReviewReply** — ответы на подтверждение и отзывы
