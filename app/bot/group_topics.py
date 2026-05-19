@@ -36,7 +36,10 @@ class GroupTopicsManager:
         if stripped == SYSTEM_TOPIC_NAME:
             return True
         normalized = stripped.lstrip("⭐🌟★⭐️ ").strip()
-        return normalized == SYSTEM_TOPIC_NAME
+        if normalized == SYSTEM_TOPIC_NAME:
+            return True
+        lower = normalized.lower()
+        return "отзыв" in lower and "подтвержд" in lower
 
     def __init__(self, tg: "TGBot"):
         self.tg = tg
@@ -131,7 +134,7 @@ class GroupTopicsManager:
         return None
 
     def _forum_topic_accessible(self, chat_id: int, thread_id: int) -> bool:
-        """Топик существует (без проверки названия — для сохранённого ID)."""
+        """Топик существует (без проверки названия — для топиков покупателей)."""
         if self._get_forum_topic_name(chat_id, thread_id) is not None:
             return True
         try:
@@ -140,23 +143,44 @@ class GroupTopicsManager:
         except Exception as exc:
             return not self._is_topic_missing_error(exc)
 
-    def _find_existing_system_topic(self, chat_id: int) -> int | None:
-        """Ищет топик по имени, если ID ещё не сохранён."""
-        stored = self._stored_system_topic_id()
-        if stored and self._forum_topic_accessible(chat_id, stored):
-            return stored
+    @staticmethod
+    def _is_topic_name_taken_error(exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(
+            token in msg
+            for token in ("already", "exists", "occupied", "duplicate", "same name", "not unique")
+        )
 
-        seen: set[int] = set()
-        if stored:
-            seen.add(stored)
-
-        for tid in range(2, 201):
-            if tid in seen:
-                continue
+    def _scan_system_topic_by_name(self, chat_id: int) -> int | None:
+        """Ищет системный топик по заголовку (2…200)."""
+        for tid in range(2, 501):
             name = self._get_forum_topic_name(chat_id, tid)
             if self._is_system_topic_name(name):
                 return tid
         return None
+
+    def _resolve_system_topic_id(self, chat_id: int) -> int | None:
+        """Возвращает ID системного топика только если имя совпадает."""
+        stored = self._stored_system_topic_id()
+        if stored:
+            name = self._get_forum_topic_name(chat_id, stored)
+            if self._is_system_topic_name(name):
+                return stored
+            if name is not None:
+                logger.warning(
+                    "systemTopicId=%s указывает на топик «%s», а не «%s». Сбрасываю привязку.",
+                    stored, name, SYSTEM_TOPIC_NAME,
+                )
+            else:
+                logger.warning(
+                    "systemTopicId=%s не читается через getForumTopic, ищу топик по имени в группе.",
+                    stored,
+                )
+
+        return self._scan_system_topic_by_name(chat_id)
+
+    def _find_existing_system_topic(self, chat_id: int) -> int | None:
+        return self._resolve_system_topic_id(chat_id)
 
     def is_enabled(self) -> bool:
         return self.assistant.MAIN_CFG["Telegram"].getboolean("groupTopicsEnabled")
@@ -236,16 +260,21 @@ class GroupTopicsManager:
         return None
 
     def _update_system_topic_icon(self, chat_id: int, thread_id: int) -> None:
+        name = self._get_forum_topic_name(chat_id, thread_id)
+        if name is not None and not self._is_system_topic_name(name):
+            return
+
         emoji_id = self._get_star_icon_emoji_id()
         try:
             if emoji_id:
                 self.tg.bot.edit_forum_topic(chat_id, thread_id, SYSTEM_TOPIC_NAME, emoji_id)
-            else:
+            elif name != SYSTEM_TOPIC_NAME:
                 self.tg.bot.edit_forum_topic(chat_id, thread_id, SYSTEM_TOPIC_NAME)
             logger.debug("Иконка системного топика обновлена (emoji_id=%s).", emoji_id)
-        except Exception:
-            logger.warning("Не удалось обновить иконку системного топика.")
-            logger.debug("TRACEBACK", exc_info=True)
+        except Exception as exc:
+            if "not modified" in str(exc).lower():
+                return
+            logger.debug("Не удалось обновить иконку системного топика: %s", exc, exc_info=True)
 
     def _pin_chat_message(self, chat_id: int, message_id: int, message_thread_id: int | None = None) -> bool:
         params = {
@@ -310,18 +339,55 @@ class GroupTopicsManager:
         self._save()
         self._pin_intro_in_topic(chat_id, thread_id)
 
-    def _create_system_topic(self, chat_id: int) -> None:
-        create_kwargs = {"icon_color": SYSTEM_TOPIC_ICON_COLOR}
+    def _create_system_topic(self, chat_id: int) -> int | None:
         star_icon = self._get_star_icon_emoji_id()
+        create_attempts: list[dict] = []
         if star_icon:
-            create_kwargs["icon_custom_emoji_id"] = star_icon
-        topic = self.tg.bot.create_forum_topic(chat_id, SYSTEM_TOPIC_NAME, **create_kwargs)
-        thread_id = topic.message_thread_id
-        self._bind_system_topic(thread_id)
-        self._data["pending_pin_thread_id"] = thread_id
-        self._save()
-        logger.info("Создан системный топик «%s» (ID %s).", SYSTEM_TOPIC_NAME, thread_id)
-        self._finalize_system_topic(chat_id, thread_id)
+            create_attempts.append({
+                "icon_color": SYSTEM_TOPIC_ICON_COLOR,
+                "icon_custom_emoji_id": star_icon,
+            })
+        create_attempts.append({"icon_color": SYSTEM_TOPIC_ICON_COLOR})
+        create_attempts.append({})
+
+        last_error: Exception | None = None
+        for create_kwargs in create_attempts:
+            try:
+                topic: ForumTopic = self.tg.bot.create_forum_topic(
+                    chat_id, SYSTEM_TOPIC_NAME, **create_kwargs,
+                )
+                thread_id = topic.message_thread_id
+                self._bind_system_topic(thread_id)
+                self._data["pending_pin_thread_id"] = thread_id
+                self._save()
+                logger.info("Создан системный топик «%s» (ID %s).", SYSTEM_TOPIC_NAME, thread_id)
+                self._finalize_system_topic(chat_id, thread_id)
+                return thread_id
+            except Exception as exc:
+                last_error = exc
+                if self._is_topic_name_taken_error(exc):
+                    found = self._scan_system_topic_by_name(chat_id)
+                    if found:
+                        self._bind_system_topic(found)
+                        logger.info(
+                            "Системный топик уже есть (ID %s), привязал без создания.",
+                            found,
+                        )
+                        self._update_system_topic_icon(chat_id, found)
+                        return found
+                logger.debug(
+                    "create_forum_topic не удался (%s): %s",
+                    create_kwargs or "default",
+                    exc,
+                    exc_info=True,
+                )
+
+        if last_error:
+            logger.error(
+                "Не удалось создать системный топик «%s» в группе %s: %s",
+                SYSTEM_TOPIC_NAME, chat_id, last_error,
+            )
+        return None
 
     def ensure_system_topic(self, force: bool = False) -> None:
         if not self.is_active():
@@ -332,45 +398,21 @@ class GroupTopicsManager:
 
         self._sync_system_topic_storage()
 
-        stored = self._stored_system_topic_id()
-        if stored and self._forum_topic_accessible(chat_id, stored):
-            self._bind_system_topic(stored)
-            self._update_system_topic_icon(chat_id, stored)
-            logger.debug("Системный топик: использую сохранённый ID %s.", stored)
-            return
-
         with self._system_topic_lock:
             self._sync_system_topic_storage()
-            stored = self._stored_system_topic_id()
-            if stored and self._forum_topic_accessible(chat_id, stored):
-                self._bind_system_topic(stored)
-                self._update_system_topic_icon(chat_id, stored)
+            resolved = self._resolve_system_topic_id(chat_id)
+            if resolved:
+                self._bind_system_topic(resolved)
+                logger.info("Системный топик: ID %s («%s»).", resolved, SYSTEM_TOPIC_NAME)
+                self._update_system_topic_icon(chat_id, resolved)
                 return
 
-            existing = self._find_existing_system_topic(chat_id)
-            if existing:
-                self._bind_system_topic(existing)
-                logger.info(
-                    "Найден существующий системный топик «%s» (ID %s), новый не создаю.",
-                    SYSTEM_TOPIC_NAME,
-                    existing,
-                )
-                self._update_system_topic_icon(chat_id, existing)
-                return
+            if self._stored_system_topic_id():
+                self._clear_system_topic_binding()
 
-            if stored:
-                logger.warning(
-                    "Сохранённый системный топик (ID %s) недоступен, но другой с таким именем не найден.",
-                    stored,
-                )
-
-            try:
-                self._data["pending_pin_thread_id"] = True
-                self._save()
-                self._create_system_topic(chat_id)
-            except Exception:
-                logger.error("Не удалось создать системный топик в группе.")
-                logger.debug("TRACEBACK", exc_info=True)
+            self._data["pending_pin_thread_id"] = True
+            self._save()
+            self._create_system_topic(chat_id)
 
     @staticmethod
     def normalize_group_chat_id(raw: str) -> int | None:
@@ -498,7 +540,7 @@ class GroupTopicsManager:
             except (TypeError, ValueError):
                 return None, int(thread_id)
 
-        for tid in range(2, 201):
+        for tid in range(2, 501):
             topic_name = self._get_forum_topic_name(gid, tid)
             if topic_name and self._is_buyer_topic_title(topic_name, username):
                 for key, buyer in self._data.get("buyer_topics", {}).items():
@@ -857,26 +899,41 @@ class GroupTopicsManager:
         if not gid:
             return False
 
-        self.ensure_system_topic(force=True)
-        thread_id = self._data.get("system_topic_id")
-        if not thread_id:
-            found = self._find_existing_system_topic(gid)
-            if found:
-                self._bind_system_topic(found)
-                thread_id = found
-        if not thread_id:
-            return False
-
-        kwargs = {"message_thread_id": thread_id, "parse_mode": "HTML", "disable_web_page_preview": True}
+        kwargs = {"parse_mode": "HTML", "disable_web_page_preview": True}
         if keyboard is not None:
             kwargs["reply_markup"] = keyboard
-        try:
-            self.tg.bot.send_message(gid, text, **kwargs)
-            return True
-        except Exception:
-            logger.error("Не удалось отправить уведомление в системный топик.")
-            logger.debug("TRACEBACK", exc_info=True)
-            return False
+
+        for attempt in range(2):
+            self.ensure_system_topic(force=True)
+            thread_id = self._data.get("system_topic_id")
+            if not thread_id:
+                thread_id = self._resolve_system_topic_id(gid)
+                if thread_id:
+                    self._bind_system_topic(thread_id)
+            if not thread_id:
+                with self._system_topic_lock:
+                    thread_id = self._create_system_topic(gid)
+            if not thread_id:
+                logger.error(
+                    "Системный топик не найден и не создан (группа %s). Проверьте права бота на темы.",
+                    gid,
+                )
+                return False
+
+            try:
+                self.tg.bot.send_message(gid, text, message_thread_id=thread_id, **kwargs)
+                return True
+            except Exception as exc:
+                logger.error(
+                    "Не удалось отправить уведомление в системный топик (thread %s): %s",
+                    thread_id, exc,
+                )
+                logger.debug("TRACEBACK", exc_info=True)
+                if attempt == 0 and self._is_topic_missing_error(exc):
+                    self._clear_system_topic_binding()
+                    continue
+                return False
+        return False
 
     def try_route_notification(self, text: str | None, keyboard, notification_type: str,
                                photo: bytes | None = None) -> bool:
