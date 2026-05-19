@@ -540,7 +540,8 @@ def edit_lot(c: Assistant, lot_number: int, offset: int) -> K:
 
 # Прочее
 def new_order(order_id: str, username: str, node_id: int,
-              confirmation: bool = False, no_refund: bool = False) -> K:
+              confirmation: bool = False, no_refund: bool = False,
+              buyer_topic_url: str | None = None) -> K:
     """
     Генерирует клавиатуру для сообщения о новом заказе.
 
@@ -560,13 +561,29 @@ def new_order(order_id: str, username: str, node_id: int,
         else:
             kb.add(B(_("ord_refund"), None, f"{cb.REQUEST_REFUND}:{order_id}:{node_id}:{username}"))
 
+    answer_btn = (
+        B(_("ord_answer"), url=buyer_topic_url)
+        if buyer_topic_url
+        else B(_("ord_answer"), None, f"{cb.SEND_FP_MESSAGE}:{node_id}:{username}")
+    )
     kb.add(B(_("ord_open"), url=f"https://funpay.com/orders/{order_id}/"))\
-        .row(B(_("ord_answer"), None, f"{cb.SEND_FP_MESSAGE}:{node_id}:{username}"),
-             B(_("ord_templates"), None, f"{cb.TMPLT_LIST_ANS_MODE}:0:{node_id}:{username}:2:{order_id}:{1 if no_refund else 0}"))
+        .row(
+            answer_btn,
+            B(_("ord_templates"), None, f"{cb.TMPLT_LIST_ANS_MODE}:0:{node_id}:{username}:2:{order_id}:{1 if no_refund else 0}"),
+        )
     return kb
 
 
-def reply(node_id: int, username: str, again: bool = False, extend: bool = False) -> K:
+def new_order_kb(c: Assistant, order_id: str, username: str, node_id: int, **kwargs) -> K:
+    """Клавиатура заказа: кнопка «Ответить» — прямая ссылка на топик, если группа активна."""
+    topic_url = None
+    if c.telegram and c.telegram.group_topics.is_active():
+        topic_url = c.telegram.group_topics.ensure_buyer_topic_link(node_id, username)
+    return new_order(order_id, username, node_id, buyer_topic_url=topic_url, **kwargs)
+
+
+def reply(node_id: int, username: str, again: bool = False, extend: bool = False,
+          buyer_topic_url: str | None = None) -> K:
     """
     Генерирует клавиатуру для отправки сообщения в чат FunPay.
 
@@ -577,7 +594,12 @@ def reply(node_id: int, username: str, again: bool = False, extend: bool = False
 
     :return: объект клавиатуры для отправки сообщения в чат FunPay.
     """
-    bts = [B(_("msg_reply2") if again else _("msg_reply"), None, f"{cb.SEND_FP_MESSAGE}:{node_id}:{username}"),
+    reply_btn = (
+        B(_("msg_reply2") if again else _("msg_reply"), url=buyer_topic_url)
+        if buyer_topic_url
+        else B(_("msg_reply2") if again else _("msg_reply"), None, f"{cb.SEND_FP_MESSAGE}:{node_id}:{username}")
+    )
+    bts = [reply_btn,
            B(_("msg_templates"), None, f"{cb.TMPLT_LIST_ANS_MODE}:0:{node_id}:{username}:{int(again)}:{int(extend)}")]
     if extend:
         bts.append(B(_("msg_more"), None, f"{cb.EXTEND_CHAT}:{node_id}:{username}"))
@@ -585,6 +607,13 @@ def reply(node_id: int, username: str, again: bool = False, extend: bool = False
     kb = K()\
         .row(*bts)
     return kb
+
+
+def reply_kb(c: Assistant, node_id: int, username: str, **kwargs) -> K:
+    topic_url = None
+    if c.telegram and c.telegram.group_topics.is_active():
+        topic_url = c.telegram.group_topics.ensure_buyer_topic_link(node_id, username)
+    return reply(node_id, username, buyer_topic_url=topic_url, **kwargs)
 
 
 def templates_list(c: Assistant, offset: int) -> K:

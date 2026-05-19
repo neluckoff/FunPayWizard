@@ -836,10 +836,15 @@ class GroupTopicsManager:
             internal = raw.lstrip("-")
         return f"https://t.me/c/{internal}/{thread_id}"
 
-    def open_buyer_topic_for_reply(self, fp_chat_id: int, username: str) -> str | None:
+    def ensure_buyer_topic_link(self, fp_chat_id: int, username: str) -> str | None:
+        """Создаёт/находит топик и возвращает ссылку t.me/c/… для кнопки «Ответить»."""
+        return self.open_buyer_topic_for_reply(fp_chat_id, username)
+
+    def open_buyer_topic_for_reply(self, fp_chat_id: int, username: str,
+                                  *, ping_text: str | None = None) -> str | None:
         """
         Создаёт/находит топик покупателя в группе.
-        Возвращает ссылку на топик (открыть через answer_callback_query url), без сообщений в ЛС.
+        Возвращает ссылку на топик. Опционально шлёт пинг-сообщение в топик.
         """
         if not self.is_active():
             return None
@@ -851,6 +856,18 @@ class GroupTopicsManager:
         gid = self.group_chat_id()
         if not gid:
             return None
+
+        if ping_text:
+            try:
+                self.tg.bot.send_message(
+                    gid, ping_text,
+                    message_thread_id=thread_id,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                logger.error("Не удалось отправить пинг в топик покупателя %s.", username)
+                logger.debug("TRACEBACK", exc_info=True)
 
         return self.forum_topic_link(gid, thread_id)
 

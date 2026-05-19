@@ -867,10 +867,7 @@ class TGBot:
         """
         split = c.data.split(":")
         node_id = int(split[1])
-        try:
-            username = split[2]
-        except IndexError:
-            username = None
+        username = ":".join(split[2:]).strip() if len(split) > 2 else ""
 
         if not username:
             self.bot.answer_callback_query(c.id)
@@ -880,9 +877,11 @@ class TGBot:
             self.bot.answer_callback_query(c.id, _("gt_no_group_linked"), show_alert=True)
             return
 
-        link = self.group_topics.open_buyer_topic_for_reply(node_id, username)
+        link = self.group_topics.open_buyer_topic_for_reply(
+            node_id, username, ping_text=_("gt_reply_ping"),
+        )
         if link:
-            self.bot.answer_callback_query(c.id, _("gt_topic_open_alert"), url=link)
+            self.bot.answer_callback_query(c.id, _("gt_topic_ping_alert"))
         else:
             self.bot.answer_callback_query(c.id, _("gt_topic_open_failed"), show_alert=True)
 

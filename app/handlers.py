@@ -238,7 +238,7 @@ def send_review_notification(c: Assistant, order: Order, chat_id: int, reply_tex
     Thread(target=c.telegram.send_notification,
            args=(f"🔮 Вы получили {'⭐' * order.review.stars} за заказ <code>{order.id}</code>!\n\n"
                  f"💬<b>Отзыв:</b>\n<code>{helpers.escape(order.review.text)}</code>{reply_text}",
-                 keyboards.new_order(order.id, order.buyer_username, chat_id),
+                 keyboards.new_order_kb(c, order.id, order.buyer_username, chat_id),
                  helpers.NotificationTypes.review),
            daemon=True).start()
 
@@ -448,8 +448,11 @@ def send_new_order_notification_handler(c: Assistant, e: NewOrderEvent, *args):
     text = _("ntfc_new_order", helpers.escape(e.order.description), e.order.buyer_username, e.order.price, e.order.id,
              delivery_info)
 
-    chat_id = c.account.get_chat_by_name(e.order.buyer_username, True).id
-    keyboard = keyboards.new_order(e.order.id, e.order.buyer_username, chat_id)
+    chat = c.account.get_chat_by_name(e.order.buyer_username, True)
+    if not chat:
+        logger.warning("Чат с покупателем %s не найден — уведомление о заказе без кнопки «Ответить».", e.order.buyer_username)
+        return
+    keyboard = keyboards.new_order_kb(c, e.order.id, e.order.buyer_username, chat.id)
     Thread(target=c.telegram.send_notification, args=(text, keyboard, helpers.NotificationTypes.new_order),
            daemon=True).start()
 
@@ -676,12 +679,17 @@ def send_order_confirmed_notification_handler(assistant: Assistant, event: Order
         return
 
     chat = assistant.account.get_chat_by_name(event.order.buyer_username, True)
+    if not chat:
+        logger.warning(
+            "Чат с покупателем %s не найден — уведомление о подтверждении заказа пропущено.",
+            event.order.buyer_username,
+        )
+        return
     amount = helpers.format_order_price(event.order.price, event.order.currency)
     text = _("ntfc_order_confirmed", chat.id, event.order.buyer_username, event.order.id, amount)
+    keyboard = keyboards.new_order_kb(assistant, event.order.id, event.order.buyer_username, chat.id)
     Thread(target=assistant.telegram.send_notification,
-           args=(text,
-                 keyboards.new_order(event.order.id, event.order.buyer_username, chat.id),
-                 helpers.NotificationTypes.order_confirmed),
+           args=(text, keyboard, helpers.NotificationTypes.order_confirmed),
            daemon=True).start()
 
 
