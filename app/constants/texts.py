@@ -573,7 +573,7 @@ old_orders_ticket_url = "https://support.funpay.com/tickets/new/1"
 old_orders_result = (
     "Если покупатель не подтверждает заказ, можно "
     '<a href="{}">создать заявку в поддержку FunPay</a>.\n\n'
-    "Скопируйте текст ниже и отправьте в чат с покупателем:\n\n"
+    "Скопируйте текст ниже и вставьте в заявку в тело заявки::\n\n"
     "<pre>{}</pre>"
 )
 old_orders_copy_text = (
