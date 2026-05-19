@@ -79,9 +79,9 @@ class TGBot:
         # }
         #
         self.notification_settings = helpers.load_notification_settings()  # настройки уведомлений.
-        self._migrate_notification_settings()
         self.answer_templates = helpers.load_answer_templates()  # заготовки ответов.
         self.authorized_users = helpers.load_authorized_users()  # авторизированные пользователи.
+        self._migrate_notification_settings()
         self.group_topics = GroupTopicsManager(self)
 
         self.commands = {
