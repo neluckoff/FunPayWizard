@@ -13,6 +13,23 @@ DEEP_SETTINGS = "ds"
 Открыть страницу «Глубокие настройки».
 """
 
+ANALYTICS = "an"
+"""
+Открыть меню настраиваемой аналитики.
+"""
+
+ANALYTICS_TOGGLE = "an:t"
+"""
+Переключить блок аналитики в отчёте.
+Использование: an:t:section_id
+section_id: balance | withdraw | sales | refunds | today | lots
+"""
+
+ANALYTICS_RUN = "an:run"
+"""
+Собрать и показать отчёт по выбранным блокам.
+"""
+
 CATEGORY = "2"
 """
 Открыть категорию настроек.

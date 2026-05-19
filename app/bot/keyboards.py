@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 from telebot.types import InlineKeyboardMarkup as K, InlineKeyboardButton as B, Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
-from app.bot import callbacks as cb, menu_config
+from app.bot import analytics, callbacks as cb, menu_config
 from app.bot.helpers import NotificationTypes, bool_to_text, add_navigation_buttons
 
 from app.utils import assistant_tools
@@ -69,10 +69,35 @@ def settings_sections(c: Assistant) -> K:
         B(_("mm_new_msg_view"), callback_data=f"{cb.CATEGORY}:mv"),
         B(_("mm_group_topics"), callback_data=f"{cb.CATEGORY}:gt"),
     ).row(
+        B(_("mm_analytics"), callback_data=cb.ANALYTICS),
         B(_("mm_deep_settings"), callback_data=cb.DEEP_SETTINGS),
+    ).row(
         B(_("mm_support"), callback_data=f"{cb.CATEGORY}:sp"),
     )
     return kb
+
+
+def analytics_menu(user_id: int) -> K:
+    prefs = analytics.get_user_prefs(user_id)
+
+    def toggle_btn(section_id: str) -> B:
+        mark = "🟢" if prefs.get(section_id) else "🔴"
+        return B(f"{mark} {analytics.section_label(section_id)}", callback_data=f"{cb.ANALYTICS_TOGGLE}:{section_id}")
+
+    kb = K()
+    kb.row(toggle_btn("balance"), toggle_btn("sales"))
+    kb.row(toggle_btn("withdraw"), toggle_btn("refunds"))
+    kb.row(toggle_btn("today"), toggle_btn("lots"))
+    kb.add(B(_("an_show"), callback_data=cb.ANALYTICS_RUN))
+    kb.add(B(_("gl_back"), callback_data=cb.MAIN))
+    return kb
+
+
+def analytics_report_actions() -> K:
+    return K().row(
+        B(_("gl_refresh"), callback_data=cb.ANALYTICS_RUN),
+        B(_("gl_back"), callback_data=cb.ANALYTICS),
+    )
 
 
 def support_settings(c: Assistant) -> K:

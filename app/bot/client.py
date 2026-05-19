@@ -26,7 +26,7 @@ from telebot.types import (
     ReplyKeyboardRemove,
     InputMediaPhoto,
 )
-from app.bot import helpers, keyboards_presets as presets, keyboards as kb, callbacks as cb
+from app.bot import analytics, helpers, keyboards_presets as presets, keyboards as kb, callbacks as cb
 from app.bot import static_assets
 from app.bot.onboarding import SetupWizard
 from app.bot.group_topics import GroupTopicsManager
@@ -1019,6 +1019,54 @@ class TGBot:
         )
         self.bot.answer_callback_query(c.id)
 
+    def open_analytics_menu(self, c: CallbackQuery):
+        """Меню выбора блоков аналитики."""
+        self._edit_text_screen(
+            c.message.chat.id,
+            c.message.id,
+            _("desc_analytics"),
+            kb.analytics_menu(c.from_user.id),
+            from_photo=self._is_photo_message(c.message),
+        )
+        self.bot.answer_callback_query(c.id)
+
+    def toggle_analytics_section(self, c: CallbackQuery):
+        section_id = c.data.split(":")[-1]
+        analytics.toggle_user_pref(c.from_user.id, section_id)
+        self.bot.edit_message_reply_markup(
+            c.message.chat.id,
+            c.message.id,
+            reply_markup=kb.analytics_menu(c.from_user.id),
+        )
+        self.bot.answer_callback_query(c.id)
+
+    def run_analytics_report(self, c: CallbackQuery):
+        if not analytics.enabled_sections(c.from_user.id):
+            self.bot.answer_callback_query(c.id, _("an_select_one"), show_alert=True)
+            return
+
+        self.bot.answer_callback_query(c.id)
+        wait_msg = self.bot.send_message(c.message.chat.id, _("analytics_loading"))
+        try:
+            self.assistant.account.get()
+            self.assistant.balance = self.assistant.get_balance()
+            text = analytics.build_report(self.assistant, c.from_user.id)
+        except Exception:
+            logger.error("Ошибка сборки аналитики.")
+            logger.debug("TRACEBACK", exc_info=True)
+            text = _("analytics_error")
+
+        try:
+            self.bot.delete_message(wait_msg.chat.id, wait_msg.message_id)
+        except Exception:
+            pass
+
+        self.bot.send_message(
+            c.message.chat.id,
+            text,
+            reply_markup=kb.analytics_report_actions(),
+        )
+
     def open_cp2(self, c: CallbackQuery):
         """Обратная совместимость со старым callback «Далее» — открывает главное меню."""
         self.open_cp(c)
@@ -1248,6 +1296,9 @@ class TGBot:
         self.cbq_handler(self.open_order_menu, lambda c: c.data.startswith(f"{cb.BACK_TO_ORDER_KB}:"))
         self.cbq_handler(self.open_cp, lambda c: c.data == cb.MAIN)
         self.cbq_handler(self.open_deep_settings, lambda c: c.data == cb.DEEP_SETTINGS)
+        self.cbq_handler(self.open_analytics_menu, lambda c: c.data == cb.ANALYTICS)
+        self.cbq_handler(self.toggle_analytics_section, lambda c: c.data.startswith(f"{cb.ANALYTICS_TOGGLE}:"))
+        self.cbq_handler(self.run_analytics_report, lambda c: c.data == cb.ANALYTICS_RUN)
         self.cbq_handler(self.open_cp2, lambda c: c.data == cb.MAIN2)
         self.cbq_handler(self.open_settings_section, lambda c: c.data.startswith(f"{cb.CATEGORY}:"))
         self.cbq_handler(self.switch_param, lambda c: c.data.startswith(f"{cb.SWITCH}:"))

@@ -28,6 +28,7 @@ mm_group_topics = "💬 Группа"
 mm_plugins = "🧩 Плагины"
 mm_configs = "📁 Конфиги"
 mm_deep_settings = "🔧 Глубокие настройки"
+mm_analytics = "📊 Аналитика"
 mm_support = "🆘 Поддержка"
 
 # Кнопки reply-клавиатуры
@@ -445,7 +446,50 @@ pl_new = "Отправь мне плагин."
 
 # - Описания меню
 desc_main = "Панель управления — выбери раздел:"
+desc_analytics = (
+    "<b>📊 Аналитика</b>\n\n"
+    "Отметь блоки, которые нужны в отчёте, и нажми <b>«Показать отчёт»</b>.\n"
+    "🟢 — включено, 🔴 — выключено."
+)
 desc_deep = "Глубокие настройки — выбери раздел:"
+an_balance = "💰 Баланс"
+an_withdraw = "🏦 Вывод средств"
+an_sales = "📈 Продажи"
+an_refunds = "↩️ Возвраты"
+an_today = "📅 Сегодня"
+an_lots = "📦 Лоты"
+an_show = "▶️ Показать отчёт"
+an_select_one = "⚠️ Включи хотя бы один блок аналитики."
+analytics_loading = "⏳ Собираю статистику, подожди..."
+analytics_error = "❌ Не удалось собрать отчёт. Проверь подключение к FunPay."
+an_report_header = "📊 <b>Аналитика</b> — <i>{}</i>"
+an_block_balance = (
+    "<b>💰 Баланс</b>\n"
+    "<b>ID:</b> <code>{}</code>\n"
+    "<b>Незавершённых заказов:</b> <code>{}</code>\n"
+    "<b>₽:</b> <code>{}₽</code> (доступно <code>{}₽</code>)\n"
+    "<b>$:</b> <code>{}$</code> (доступно <code>{}$</code>)\n"
+    "<b>€:</b> <code>{}€</code> (доступно <code>{}€</code>)"
+)
+an_block_withdraw = (
+    "<b>🏦 Вывод средств</b>\n"
+    "<b>Баланс:</b> <code>{} {}</code>\n"
+    "<b>Сейчас:</b> <code>{} {}</code>\n"
+    "<b>Через час:</b> <code>+{:.1f} {}</code>\n"
+    "<b>Через день:</b> <code>+{:.1f} {}</code>\n"
+    "<b>Через 2 дня:</b> <code>+{:.1f} {}</code>"
+)
+an_block_sales = "<b>📈 Продажи</b>\n{}"
+an_block_refunds = "<b>↩️ Возвраты</b>\n{}"
+an_block_today = (
+    "<b>📅 Сегодня</b> (<code>{}</code>)\n"
+    "<b>Заказов:</b> <code>{}</code>\n"
+    "<b>Незакрытых:</b> <code>{}</code>\n"
+    "<b>Заработано (закрытые):</b>\n{}"
+)
+an_block_lots = "<b>📦 Лоты</b>\n<b>Всего:</b> <code>{}</code>\n<b>Активных:</b> <code>{}</code>"
+an_block_lots_empty = "<b>📦 Лоты</b>\n<i>Данные профиля ещё не загружены.</i>"
+an_updated = "Обновлено: {}"
 desc_support = (
     "<b>Поддержка FunPayWizard</b>\n\n"
     "Если что-то не работает, есть вопросы по настройке или идеи — "
