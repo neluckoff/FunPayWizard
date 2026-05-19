@@ -688,11 +688,18 @@ def send_bot_started_notification_handler(c: Assistant, *args):
         c.telegram.group_topics.ensure_system_topic()
     text = _("fpw_init", c.VERSION, c.account.username, c.account.id,
              c.balance.total_rub, c.balance.total_usd, c.balance.total_eur, c.account.active_sales)
-    for i in c.telegram.init_messages:
+    for chat_id, msg_id in c.telegram.init_messages:
         try:
-            c.telegram.bot.edit_message_text(text, i[0], i[1])
-        except:
+            c.telegram.bot.edit_message_text(
+                text, chat_id, msg_id,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception:
             continue
+
+    if c.telegram.group_topics.is_active():
+        c.telegram.group_topics.notify_fpw_initialized(text)
 
 
 

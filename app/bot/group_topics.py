@@ -814,6 +814,42 @@ class GroupTopicsManager:
                 return True
         return True
 
+    def notify_fpw_initialized(self, text: str) -> None:
+        """Статус инициализации FPW в General группы (не «бот запущен, ждём FP»)."""
+        if not self.is_active():
+            return
+        if not self.tg.group_notifications_enabled():
+            return
+        if not self.tg.is_notification_enabled_globally(helpers.NotificationTypes.bot_start):
+            return
+        gid = self.group_chat_id()
+        if not gid:
+            return
+
+        msg_id = self._data.get("group_status_msg_id")
+        if msg_id:
+            try:
+                self.tg.bot.edit_message_text(
+                    text, gid, int(msg_id),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+                return
+            except Exception:
+                logger.debug("Не удалось обновить статус FPW в группе, отправлю новое сообщение.", exc_info=True)
+
+        try:
+            msg = self.tg.bot.send_message(
+                gid, text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            self._data["group_status_msg_id"] = msg.message_id
+            self._save()
+        except Exception:
+            logger.error("Не удалось отправить статус инициализации FPW в группу.")
+            logger.debug("TRACEBACK", exc_info=True)
+
     def send_system_notification(self, text: str, keyboard=None) -> bool:
         if not self.is_active():
             return False

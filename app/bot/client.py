@@ -1509,7 +1509,7 @@ class TGBot:
         if (
             self.group_topics.is_active()
             and self.group_notifications_enabled()
-            and notification_type not in (n.review, n.order_confirmed, n.new_message)
+            and notification_type not in (n.review, n.order_confirmed, n.new_message, n.bot_start)
             and self.is_notification_enabled_globally(notification_type)
         ):
             gid = self.group_topics.group_chat_id()
