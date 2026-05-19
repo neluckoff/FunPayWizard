@@ -34,7 +34,7 @@ logo = (
     f"{colorize_banner(wizard_banner(), _C_WIZARD, bright=Style.BRIGHT)}\n"
 )
 
-VERSION = "0.1.7"
+VERSION = "1.0.0"
 
 if getattr(sys, 'frozen', False):
     os.chdir(os.path.dirname(sys.executable))

@@ -85,7 +85,9 @@ def load_main_config(config_path: str):
             "secretKey": "any+empty",
             "proxy": "any+empty",
             "groupTopicsEnabled": ["0", "1"],
-            "groupChatId": "any+empty"
+            "groupChatId": "any+empty",
+            "groupNotificationsEnabled": ["0", "1"],
+            "systemTopicId": "any+empty",
         },
 
         "BlockList": {
@@ -183,6 +185,14 @@ def load_main_config(config_path: str):
                     config.write(f)
             elif section_name == "Telegram" and param_name == "groupChatId" and param_name not in config[section_name]:
                 config.set("Telegram", "groupChatId", "")
+                with open("configs/_main.cfg", "w", encoding="utf-8") as f:
+                    config.write(f)
+            elif section_name == "Telegram" and param_name == "groupNotificationsEnabled" and param_name not in config[section_name]:
+                config.set("Telegram", "groupNotificationsEnabled", "1")
+                with open("configs/_main.cfg", "w", encoding="utf-8") as f:
+                    config.write(f)
+            elif section_name == "Telegram" and param_name == "systemTopicId" and param_name not in config[section_name]:
+                config.set("Telegram", "systemTopicId", "")
                 with open("configs/_main.cfg", "w", encoding="utf-8") as f:
                     config.write(f)
 

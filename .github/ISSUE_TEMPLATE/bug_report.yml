@@ -11,7 +11,7 @@ body:
     id: version
     attributes:
       label: Версия FunPayWizard
-      placeholder: "0.1.7"
+      placeholder: "1.0.0"
     validations:
       required: true
 

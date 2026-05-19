@@ -26,4 +26,4 @@ python -m compileall -q api app main.py
 ## Вопросы
 
 - [Telegram @FunPayWizard](https://t.me/FunPayWizard)
-- [Группа поддержки](https://t.me/+Z3Fgq6YXytk1ODEy)
+- [Группа поддержки](https://t.me/+cBJMWvCXBkJhMmRi)

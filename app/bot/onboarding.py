@@ -8,7 +8,7 @@ from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup as K, Inl
 
 import logging
 
-from app.bot import callbacks as cb, helpers
+from app.bot import callbacks as cb, helpers, static_assets
 from app.constants import translate as _
 from app.setup import is_setup_required
 
@@ -96,8 +96,11 @@ class SetupWizard:
         golden = cfg["FunPay"]["golden_key"].strip()
 
         if len(golden) != 32:
-            self.tg.bot.send_message(m.chat.id, _("setup_welcome"))
-            self.tg.set_state(m.chat.id, m.message_id, m.from_user.id, cb.SETUP_GOLDEN_KEY)
+            welcome = self.tg._send_photo_screen(
+                m.chat.id, static_assets.PREVIEW_IMAGE, _("setup_welcome"),
+            )
+            state_mid = welcome.message_id if welcome else m.message_id
+            self.tg.set_state(m.chat.id, state_mid, m.from_user.id, cb.SETUP_GOLDEN_KEY)
             return
 
         msg = self.tg.bot.send_message(

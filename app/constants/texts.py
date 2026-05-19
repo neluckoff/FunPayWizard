@@ -509,7 +509,7 @@ desc_support = (
 )
 support_open_group = "📢 Группа поддержки"
 community_chat_url = "https://t.me/FunPayWizard"
-support_group_url = "https://t.me/+Z3Fgq6YXytk1ODEy"
+support_group_url = "https://t.me/+cBJMWvCXBkJhMmRi"
 desc_gs = "Здесь ты можешь включать и выключать основные функции <i>FPW</i>."
 desc_ns = (
     "<b>🔔 Уведомления</b>\n\n"

@@ -24,7 +24,8 @@ DEFAULT_CONFIG = {
         "proxy": "",
         "groupTopicsEnabled": "0",
         "groupChatId": "",
-        "groupNotificationsEnabled": "1"
+        "groupNotificationsEnabled": "1",
+        "systemTopicId": "",
     },
     "BlockList": {
         "blockDelivery": "0",

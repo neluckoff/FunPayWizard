@@ -469,12 +469,14 @@ class TGBot:
     def _is_photo_message(message: Message) -> bool:
         return message.content_type == "photo" or bool(message.photo)
 
-    def _send_photo_screen(self, chat_id: int, image_path, caption: str, reply_markup: K) -> None:
+    def _send_photo_screen(self, chat_id: int, image_path, caption: str,
+                           reply_markup: K | None = None) -> Message | None:
         if not image_path.is_file():
-            self.bot.send_message(chat_id, caption, reply_markup=reply_markup, parse_mode="HTML")
-            return
+            return self.bot.send_message(
+                chat_id, caption, reply_markup=reply_markup, parse_mode="HTML",
+            )
         with open(image_path, "rb") as photo:
-            self.bot.send_photo(
+            return self.bot.send_photo(
                 chat_id, photo, caption=caption, reply_markup=reply_markup, parse_mode="HTML",
             )
 

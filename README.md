@@ -5,14 +5,14 @@
 </p>
 
 <p align="center">
-  <img src="assets/funpaywizard-main.png" alt="FunPayWizard" width="640">
+  <img src="assets/funpaywizard-preview.png" alt="FunPayWizard" width="640">
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.9%2B-blue?style=flat-square" alt="Python">
   <img src="https://img.shields.io/badge/Telegram-бот-26A5E4?style=flat-square" alt="Telegram">
   <a href="https://t.me/FunPayWizard"><img src="https://img.shields.io/badge/чат-@FunPayWizard-26A5E4?style=flat-square" alt="Чат"></a>
-  <a href="https://t.me/+Z3Fgq6YXytk1ODEy"><img src="https://img.shields.io/badge/поддержка-группа-8B5CF6?style=flat-square" alt="Поддержка"></a>
+  <a href="https://t.me/+cBJMWvCXBkJhMmRi"><img src="https://img.shields.io/badge/поддержка-группа-8B5CF6?style=flat-square" alt="Поддержка"></a>
 </p>
 
 <p align="center">
@@ -118,7 +118,7 @@ main.py              # точка входа
 ## Сообщество и поддержка
 
 - Чат: [@FunPayWizard](https://t.me/FunPayWizard)
-- Группа поддержки: [перейти](https://t.me/+Z3Fgq6YXytk1ODEy)
+- Группа поддержки: [перейти](https://t.me/+cBJMWvCXBkJhMmRi)
 
 Баги и предложения — через [Issues](https://github.com/neluckoff/FunPayWizard/issues). Как внести правки: [CONTRIBUTING.md](CONTRIBUTING.md).
 
