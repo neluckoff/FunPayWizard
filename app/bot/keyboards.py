@@ -119,7 +119,9 @@ def deep_settings_sections(c: Assistant) -> K:
         B(_("mm_greetings"), callback_data=f"{cb.CATEGORY}:gr"),
         B(_("mm_order_confirm"), callback_data=f"{cb.CATEGORY}:oc"),
     ).row(
+        B(_("mm_review_reminder"), callback_data=f"{cb.CATEGORY}:rm"),
         B(_("mm_review_reply"), callback_data=f"{cb.CATEGORY}:rr"),
+    ).add(
         B(_("mm_new_msg_view"), callback_data=f"{cb.CATEGORY}:mv"),
     ).add(
         B(_("mm_configs"), callback_data="config_loader"),
@@ -199,6 +201,18 @@ def greeting_settings(c: Assistant):
              B(_("gr_cache_init_chats", l("cacheInitChats")), None, f"{p}:cacheInitChats"))\
         .add(B(_("gr_ignore_sys_msgs", l("ignoreSystemMessages")), None, f"{p}:ignoreSystemMessages"))\
         .add(B(_("gr_edit_message"), None, cb.EDIT_GREETINGS_TEXT))\
+        .add(B(_("gl_back_to_deep"), None, cb.DEEP_SETTINGS))
+    return kb
+
+
+def review_reminder_settings(c: Assistant):
+    """
+    Генерирует клавиатуру напоминания об отзыве (cb.CATEGORY:rm).
+    """
+    kb = K()\
+        .add(B(_("rrm_send_reminder", bool_to_text(int(c.MAIN_CFG['ReviewReminder']['sendReminder']))),
+               None, f"{cb.SWITCH}:ReviewReminder:sendReminder"))\
+        .add(B(_("rrm_edit_message"), None, cb.EDIT_REVIEW_REMINDER_TEXT))\
         .add(B(_("gl_back_to_deep"), None, cb.DEEP_SETTINGS))
     return kb
 

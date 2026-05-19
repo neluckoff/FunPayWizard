@@ -19,7 +19,7 @@ import os
 from app.assistant import Assistant
 import app.utils.exceptions as excs
 from app.constants import translate as _
-from app.logo import funpay_banner, wizard_banner
+from app.logo import colorize_banner, funpay_banner, wizard_banner
 from app.constants.texts import community_chat_url
 
 # Фиолетовая палитра (256-color), чтобы FUNPAY и WIZARD отличались визуально
@@ -29,11 +29,10 @@ _C_VERSION = "\033[38;5;183m"
 _C_META = "\033[38;5;147m"
 _C_LINK = "\033[38;5;177m"
 
-logo = f"""
-{_C_FUNPAY}{Style.BRIGHT}{funpay_banner()}{Style.RESET_ALL}
-
-{_C_WIZARD}{Style.BRIGHT}{wizard_banner()}{Style.RESET_ALL}
-"""
+logo = (
+    f"\n{colorize_banner(funpay_banner(), _C_FUNPAY, bright=Style.BRIGHT)}\n\n"
+    f"{colorize_banner(wizard_banner(), _C_WIZARD, bright=Style.BRIGHT)}\n"
+)
 
 VERSION = "0.1.7"
 

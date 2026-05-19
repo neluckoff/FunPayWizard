@@ -26,3 +26,14 @@ def funpay_banner() -> str:
 
 def wizard_banner() -> str:
     return WIZARD_ART.strip()
+
+
+def colorize_banner(art: str, color: str, *, bright: str = "") -> str:
+    """
+    Красит каждую строку ASCII-арта отдельно.
+
+    Docker/compose добавляет префикс к каждой строке stdout; один SGR-код в начале
+    блока действует только на первую строку — остальные выводятся серыми.
+    """
+    reset = "\033[0m"
+    return "\n".join(f"{color}{bright}{line}{reset}" for line in art.strip().split("\n"))

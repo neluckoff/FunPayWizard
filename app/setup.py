@@ -51,6 +51,13 @@ DEFAULT_CONFIG = {
         "sendReply": "1",
         "replyText": "$username, спасибо за подтверждение заказа $order_id!\nЕсли не сложно, оставь, пожалуйста, отзыв!"
     },
+    "ReviewReminder": {
+        "sendReminder": "0",
+        "reminderText": (
+            "$username, заказ $order_id завершён!\n"
+            "Если всё прошло хорошо — буду благодарен за отзыв 🙏"
+        ),
+    },
     "ReviewReply": {
         "star1Reply": "0",
         "star2Reply": "0",

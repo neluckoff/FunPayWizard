@@ -117,6 +117,11 @@ def load_main_config(config_path: str):
             "replyText": "any"
         },
 
+        "ReviewReminder": {
+            "sendReminder": ["0", "1"],
+            "reminderText": "any"
+        },
+
         "ReviewReply": {
             "star1Reply": ["0", "1"],
             "star2Reply": ["0", "1"],
@@ -146,6 +151,14 @@ def load_main_config(config_path: str):
 
     if config.has_section("FunPay") and config.has_option("FunPay", "oldMsgGetMode"):
         config.remove_option("FunPay", "oldMsgGetMode")
+        with open(config_path, "w", encoding="utf-8") as f:
+            config.write(f)
+
+    from app.setup import DEFAULT_CONFIG
+    if "ReviewReminder" not in config.sections():
+        config.add_section("ReviewReminder")
+        for param_name, param_value in DEFAULT_CONFIG["ReviewReminder"].items():
+            config.set("ReviewReminder", param_name, param_value)
         with open(config_path, "w", encoding="utf-8") as f:
             config.write(f)
 

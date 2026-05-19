@@ -945,6 +945,24 @@ class TGBot:
                  B(_("gl_edit"), callback_data=cb.EDIT_ORDER_CONFIRM_REPLY_TEXT))
         self.bot.reply_to(m, _("order_confirm_changed"), reply_markup=keyboard)
 
+    def act_edit_review_reminder_text(self, c: CallbackQuery):
+        variables = ["v_date", "v_date_text", "v_full_date_text", "v_time", "v_full_time", "v_username",
+                     "v_order_id", "v_order_title", "v_photo"]
+        text = f"{_('v_edit_review_reminder_text')}\n\n{_('v_list')}:\n" + "\n".join(_(i) for i in variables)
+        result = self.bot.send_message(c.message.chat.id, text, reply_markup=presets.CLEAR_STATE_BTN())
+        self.set_state(c.message.chat.id, result.id, c.from_user.id, cb.EDIT_REVIEW_REMINDER_TEXT)
+        self.bot.answer_callback_query(c.id)
+
+    def edit_review_reminder_text(self, m: Message):
+        self.clear_state(m.chat.id, m.from_user.id, True)
+        self.assistant.MAIN_CFG["ReviewReminder"]["reminderText"] = m.text
+        logger.info(_("log_review_reminder_changed", m.from_user.username, m.from_user.id, m.text))
+        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
+        keyboard = K() \
+            .row(B(_("gl_back"), callback_data=f"{cb.CATEGORY}:rm"),
+                 B(_("gl_edit"), callback_data=cb.EDIT_REVIEW_REMINDER_TEXT))
+        self.bot.reply_to(m, _("review_reminder_changed"), reply_markup=keyboard)
+
     def act_edit_review_reply_text(self, c: CallbackQuery):
         stars = int(c.data.split(":")[1])
         variables = ["v_date", "v_date_text", "v_full_date_text", "v_time", "v_full_time", "v_username",
@@ -1178,6 +1196,7 @@ class TGBot:
             "NewMessageView": kb.new_message_view_settings,
             "Greetings": kb.greeting_settings,
             "OrderConfirm": kb.order_confirm_reply_settings,
+            "ReviewReminder": kb.review_reminder_settings,
             "ReviewReply": kb.review_reply_settings,
             "Telegram": kb.group_topics_settings
         }
@@ -1238,6 +1257,8 @@ class TGBot:
                    kb.greeting_settings, [self.assistant]),
             "oc": (_("desc_oc", helpers.escape(self.assistant.MAIN_CFG['OrderConfirm']['replyText'])),
                    kb.order_confirm_reply_settings, [self.assistant]),
+            "rm": (_("desc_rm", helpers.escape(self.assistant.MAIN_CFG['ReviewReminder']['reminderText'])),
+                   kb.review_reminder_settings, [self.assistant]),
             "gt": (_("desc_gt", self.group_topics.group_chat_id() or "—"),
                    kb.group_topics_settings, [self.assistant]),
             "sp": (_("desc_support"), kb.support_settings, [self.assistant]),
@@ -1365,6 +1386,9 @@ class TGBot:
         self.cbq_handler(self.act_edit_order_confirm_reply_text, lambda c: c.data == cb.EDIT_ORDER_CONFIRM_REPLY_TEXT)
         self.msg_handler(self.edit_order_confirm_reply_text,
                          func=lambda m: self.check_state(m.chat.id, m.from_user.id, cb.EDIT_ORDER_CONFIRM_REPLY_TEXT))
+        self.cbq_handler(self.act_edit_review_reminder_text, lambda c: c.data == cb.EDIT_REVIEW_REMINDER_TEXT)
+        self.msg_handler(self.edit_review_reminder_text,
+                         func=lambda m: self.check_state(m.chat.id, m.from_user.id, cb.EDIT_REVIEW_REMINDER_TEXT))
         self.cbq_handler(self.act_edit_review_reply_text, lambda c: c.data.startswith(f"{cb.EDIT_REVIEW_REPLY_TEXT}:"))
         self.msg_handler(self.edit_review_reply_text,
                          func=lambda m: self.check_state(m.chat.id, m.from_user.id, cb.EDIT_REVIEW_REPLY_TEXT))

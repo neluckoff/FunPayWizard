@@ -15,6 +15,11 @@ from api.updater.events import *
 
 from app.bot import helpers, keyboards
 from app.bot.daily_stats import start_daily_stats_loop
+from app.bot.review_reminder import (
+    cancel_review_reminder,
+    schedule_review_reminder,
+    start_review_reminder_loop,
+)
 from app.utils import assistant_tools
 from app.constants import translate as _
 from threading import Thread
@@ -241,6 +246,7 @@ def process_review_handler(c: Assistant, e: NewMessageEvent):
         if not order_id:
             return
         order_id = order_id[0][1:]
+        cancel_review_reminder(order_id)
         try:
             order = c.account.get_order(order_id)
         except:
@@ -644,6 +650,13 @@ def send_thank_u_message_handler(c: Assistant, e: OrderStatusChangedEvent):
     Thread(target=c.send_message, args=(chat.id, text, e.order.buyer_username), daemon=True).start()
 
 
+def schedule_review_reminder_handler(c: Assistant, e: OrderStatusChangedEvent):
+    """Планирует напоминание об отзыве через 12 часов после завершения заказа."""
+    if e.order.status is not types.OrderStatuses.CLOSED:
+        return
+    Thread(target=schedule_review_reminder, args=(c, e.order), daemon=True).start()
+
+
 def send_order_confirmed_notification_handler(assistant: Assistant, event: OrderStatusChangedEvent):
     """
     Отправляет уведомление о подтверждении заказа в Telegram.
@@ -703,8 +716,16 @@ BIND_TO_NEW_ORDER = [log_new_order_handler, setup_event_attributes_handler,
                      send_new_order_notification_handler, deliver_product_handler,
                      update_lots_state_handler]
 
-BIND_TO_ORDER_STATUS_CHANGED = [send_thank_u_message_handler, send_order_confirmed_notification_handler]
+BIND_TO_ORDER_STATUS_CHANGED = [
+    send_thank_u_message_handler,
+    send_order_confirmed_notification_handler,
+    schedule_review_reminder_handler,
+]
 
 BIND_TO_POST_DELIVERY = [send_delivery_notification_handler]
 
-BIND_TO_POST_START = [send_bot_started_notification_handler, start_daily_stats_loop]
+BIND_TO_POST_START = [
+    send_bot_started_notification_handler,
+    start_daily_stats_loop,
+    start_review_reminder_loop,
+]

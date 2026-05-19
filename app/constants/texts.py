@@ -22,6 +22,7 @@ mm_blacklist = "🚫 Чёрный список"
 mm_templates = "📝 Шаблоны"
 mm_greetings = "👋 Приветствие"
 mm_order_confirm = "✅ Заказ"
+mm_review_reminder = "⏰ Отзыв (12 ч)"
 mm_review_reply = "⭐ Отзывы"
 mm_new_msg_view = "✉️ Сообщения"
 mm_group_topics = "💬 Группа"
@@ -129,6 +130,8 @@ gr_edit_message = "✏️ Текст приветствия"
 # Настройки ответа на подтверждение заказа
 oc_send_reply = "{} Отправлять"
 oc_edit_message = "✏️ Текст ответа"
+rrm_send_reminder = "{} Напоминание"
+rrm_edit_message = "✏️ Текст напоминания"
 
 # Настройки вида уведомлений о новых сообщений
 mv_incl_my_msg = "{} В тексте: мои"
@@ -373,6 +376,7 @@ send_img = "Отправь мне изображение."
 
 greeting_changed = "✅ Текст приветствия изменен."
 order_confirm_changed = "✅ Текст ответа на подтверждение заказа изменен!"
+review_reminder_changed = "✅ Текст напоминания об отзыве изменён!"
 review_reply_changed = "✅ Текст ответа на отзыв с {} изменен!"
 review_reply_empty = "❌ Ответ на отзыв с {} не установлен."
 review_reply_text = "Ответ на отзыв с {}:\n<code>{}</code>"
@@ -536,6 +540,10 @@ desc_mv = (
 )
 desc_gr = "Здесь ты можешь настроить приветствие новых пользователей.\n\n<b>Текст приветствия:</b>\n<code>{}</code>"
 desc_oc = "Здесь ты можешь настроить сообщение на подтверждение заказа.\n\n<b>Текст сообщения:</b>\n<code>{}</code>"
+desc_rm = (
+    "Напоминание об отзыве через <b>12 часов</b> после завершения заказа покупателем.\n\n"
+    "<b>Текст напоминания:</b>\n<code>{}</code>"
+)
 desc_or = "Здесь ты можешь настроить ответ на отзывы."
 desc_an = "Здесь ты можешь настроить уведомления об объявлениях."
 desc_cfg = "Здесь ты можешь загрузить и выгрузить конфиги."
@@ -564,6 +572,7 @@ cmd_power_off = "выключить FPW"
 # - Описание переменных
 v_edit_greeting_text = "Введи текст приветственного сообщения."
 v_edit_order_confirm_text = "Введи текст ответа на подтверждение заказа."
+v_edit_review_reminder_text = "Введи текст напоминания об отзыве (отправится через 12 часов после завершения заказа)."
 v_edit_review_reply_text = "Введи текст ответа на отзыв с {}."
 v_edit_delivery_text = "Введи новый текст выдачи."
 v_edit_response_text = "Введи новый текст ответа."
@@ -615,6 +624,7 @@ log_user_blacklisted = "$MAGENTA@{} (ID: {})$RESET добавил $YELLOW{}$RESE
 log_user_unbanned = "$MAGENTA@{} (ID: {})$RESET удалил $YELLOW{}$RESET из ЧС."
 log_greeting_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст приветствия на $YELLOW{}$RESET."
 log_order_confirm_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст ответа на подтверждение заказа на $YELLOW{}$RESET."
+log_review_reminder_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст напоминания об отзыве на $YELLOW{}$RESET."
 log_review_reply_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст ответа на отзыв с {} зв. на $YELLOW{}$RESET."
 log_param_changed = "$MAGENTA@{} (ID: {})$RESET изменил параметр $CYAN{}$RESET секции $YELLOW[{}]$RESET на $YELLOW{}$RESET."
 log_notification_switched = "$MAGENTA@{} (ID: {})$RESET переключил уведомления $YELLOW{}$RESET для чата $YELLOW{}$RESET на $CYAN{}$RESET."
