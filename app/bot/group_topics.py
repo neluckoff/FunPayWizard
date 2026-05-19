@@ -59,6 +59,7 @@ class GroupTopicsManager:
         self.tg = tg
         self._system_topic_lock = Lock()
         self._buyer_topics_lock = Lock()
+        self._startup_status_lock = Lock()
         self._data = helpers.load_json_cache(
             CACHE_PATH, copy.deepcopy(DEFAULT_GROUP_TOPICS_CACHE),
         )
@@ -799,16 +800,32 @@ class GroupTopicsManager:
 
     @staticmethod
     def _stack_has_buyer_command(c, events: list) -> bool:
-        for event in events:
-            msg = event.message
-            if msg.author_id in (0, c.account.id):
-                continue
-            text = (msg.text or "").strip().lower()
-            if text in c.AR_CFG.sections():
-                return True
-            if text.startswith("!автовыдача"):
-                return True
-        return False
+        """True только если все сообщения покупателя в пачке — команды автовыдачи."""
+        buyer_events = [
+            ev for ev in events
+            if ev.message.author_id not in (0, c.account.id) and not ev.message.by_bot
+        ]
+        if not buyer_events:
+            return False
+        for event in buyer_events:
+            text = (event.message.text or "").strip().lower()
+            if text not in c.AR_CFG.sections() and not text.startswith("!автовыдача"):
+                return False
+        return True
+
+    @staticmethod
+    def _format_buyer_message_plain(event) -> str:
+        """Только текст покупателя, без префиксов «Ты / 👤»."""
+        msg = event.message
+        if msg.text:
+            return helpers.escape(msg.text)
+        link = msg.image_link or str(msg)
+        return f'<a href="{helpers.escape(link)}">{_("photo")}</a>'
+
+    @staticmethod
+    def _is_buyer_command(c, event) -> bool:
+        text = (event.message.text or "").strip().lower()
+        return text in c.AR_CFG.sections() or text.startswith("!автовыдача")
 
     @staticmethod
     def forum_topic_link(group_chat_id: int, thread_id: int) -> str:
@@ -841,102 +858,131 @@ class GroupTopicsManager:
         """Переписка с покупателями идёт только в группу."""
         return self.is_active()
 
-    def relay_new_message(self, c, fp_chat_id: int, chat_name: str, text: str,
-                          events: list) -> bool:
+    def relay_new_message(self, c, fp_chat_id: int, chat_name: str, buyer_events: list) -> bool:
         if not self.is_active():
             return False
         if not self.tg.group_notifications_enabled():
             return False
         if not self.tg.is_notification_enabled_globally(helpers.NotificationTypes.new_message):
             return False
-        if not events:
+        if not buyer_events:
             return False
-        if self._stack_has_buyer_command(c, events):
+        if self._stack_has_buyer_command(c, buyer_events):
             return False
 
-        has_buyer = any(
-            e.message.author_id not in (0, c.account.id) for e in events
-        )
-        if not has_buyer:
+        payloads: list[str] = []
+        for ev in buyer_events:
+            if self._is_buyer_command(c, ev):
+                continue
+            body = self._format_buyer_message_plain(ev).strip()
+            if body:
+                payloads.append(body)
+        if not payloads:
             return False
 
         thread_id = self._get_or_create_buyer_topic(fp_chat_id, chat_name)
         if not thread_id:
             logger.error("Не удалось получить топик покупателя %s (chat %s).", chat_name, fp_chat_id)
-            return True
+            return False
 
-        header = f"<b>💬 {helpers.escape(chat_name)}</b> · <a href=\"https://funpay.com/chat/?node={fp_chat_id}\">чат</a>\n\n"
+        header = (
+            f"<b>💬 {helpers.escape(chat_name)}</b> · "
+            f"<a href=\"https://funpay.com/chat/?node={fp_chat_id}\">чат</a>\n\n"
+        )
         gid = self.group_chat_id()
-        for attempt in range(2):
-            try:
-                self.tg.bot.send_message(
-                    gid,
-                    header + text,
-                    message_thread_id=thread_id,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True,
-                )
-                return True
-            except Exception:
-                if attempt == 0:
-                    key = str(fp_chat_id)
-                    buyer = self._buyers().get(key)
-                    if buyer and int(buyer.get("thread_id", 0)) == thread_id:
-                        self._buyers().pop(key, None)
-                        self._data.get("thread_by_id", {}).pop(str(thread_id), None)
-                        self._save()
-                    found = self._find_buyer_topic_by_username(chat_name)
-                    if found:
-                        _, thread_id = found
-                        self._register_buyer_topic(fp_chat_id, chat_name, thread_id)
-                        logger.warning(
-                            "Повторная отправка в топик %s для %s (chat %s).",
-                            thread_id, chat_name, fp_chat_id,
-                        )
-                        continue
-                    thread_id = self._get_or_create_buyer_topic(fp_chat_id, chat_name)
-                    if thread_id:
-                        continue
-                logger.error("Не удалось отправить сообщение в топик покупателя %s.", chat_name)
-                logger.debug("TRACEBACK", exc_info=True)
-                return True
-        return True
+        sent_any = False
+        for index, body in enumerate(payloads):
+            payload = (header + body) if index == 0 else body
+            for attempt in range(2):
+                try:
+                    self.tg.bot.send_message(
+                        gid,
+                        payload,
+                        message_thread_id=thread_id,
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                    )
+                    sent_any = True
+                    break
+                except Exception:
+                    if attempt == 0:
+                        key = str(fp_chat_id)
+                        buyer = self._buyers().get(key)
+                        if buyer and int(buyer.get("thread_id", 0)) == thread_id:
+                            self._buyers().pop(key, None)
+                            self._data.get("thread_by_id", {}).pop(str(thread_id), None)
+                            self._save()
+                        found = self._find_buyer_topic_by_username(chat_name)
+                        if found:
+                            _, thread_id = found
+                            self._register_buyer_topic(fp_chat_id, chat_name, thread_id)
+                            logger.warning(
+                                "Повторная отправка в топик %s для %s (chat %s).",
+                                thread_id, chat_name, fp_chat_id,
+                            )
+                            continue
+                        thread_id = self._get_or_create_buyer_topic(fp_chat_id, chat_name)
+                        if thread_id:
+                            continue
+                    logger.error(
+                        "Не удалось отправить сообщение в топик покупателя %s.", chat_name,
+                    )
+                    logger.debug("TRACEBACK", exc_info=True)
+                    break
+        return sent_any
 
-    def notify_fpw_initialized(self, text: str) -> None:
-        """Статус инициализации FPW в General группы (не «бот запущен, ждём FP»)."""
+    def notify_startup_status(self, text: str, *, reset_message: bool = False) -> bool:
+        """
+        Статус запуска в General группы: сначала «TG запущен», затем правка на «FPW готов».
+        reset_message=True — новое сообщение в чат (этап старта TG), иначе правка того же msg.
+        """
         if not self.is_active():
-            return
-        if not self.is_active():
-            return
+            return False
         if not self.tg.is_notification_enabled_globally(helpers.NotificationTypes.bot_start):
-            return
+            return False
         gid = self.group_chat_id()
         if not gid:
-            return
+            return False
 
-        msg_id = self._data.get("group_status_msg_id")
-        if msg_id:
+        with self._startup_status_lock:
+            if reset_message:
+                self._data["group_status_msg_id"] = None
+                self._save()
+
+            msg_id = self._data.get("group_status_msg_id")
+            if msg_id:
+                try:
+                    self.tg.bot.edit_message_text(
+                        text, gid, int(msg_id),
+                        parse_mode="HTML",
+                        disable_web_page_preview=True,
+                    )
+                    return True
+                except Exception:
+                    logger.debug(
+                        "Не удалось обновить статус в группе (msg_id=%s), отправлю новое.",
+                        msg_id, exc_info=True,
+                    )
+                    self._data["group_status_msg_id"] = None
+                    self._save()
+
             try:
-                self.tg.bot.edit_message_text(
-                    text, gid, int(msg_id),
+                msg = self.tg.bot.send_message(
+                    gid, text,
                     parse_mode="HTML",
                     disable_web_page_preview=True,
                 )
-                return
+                self._data["group_status_msg_id"] = msg.message_id
+                self._save()
+                return True
             except Exception:
-                logger.debug("Не удалось обновить статус FPW в группе, отправлю новое сообщение.", exc_info=True)
+                logger.error("Не удалось отправить статус запуска в группу.")
+                logger.debug("TRACEBACK", exc_info=True)
+                return False
 
-        try:
-            msg = self.tg.bot.send_message(
-                gid, text,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-            self._data["group_status_msg_id"] = msg.message_id
-            self._save()
-        except Exception:
-            logger.error("Не удалось отправить статус инициализации FPW в группу.")
-            logger.debug("TRACEBACK", exc_info=True)
+    def notify_fpw_initialized(self, text: str) -> None:
+        """См. notify_startup_status."""
+        self.notify_startup_status(text)
 
     def send_system_notification(self, text: str, keyboard=None) -> bool:
         if not self.is_active():

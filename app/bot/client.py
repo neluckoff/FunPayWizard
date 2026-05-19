@@ -1427,7 +1427,7 @@ class TGBot:
                 )
             return
 
-        if notification_type in (n.new_message, n.bot_start):
+        if notification_type == n.new_message:
             return
 
         gid = self.group_topics.group_chat_id()
@@ -1460,12 +1460,16 @@ class TGBot:
         if keyboard is not None:
             kwargs["reply_markup"] = keyboard
 
-        if self.group_topics.is_active():
-            self._send_group_notification(text, keyboard, notification_type, photo, pin, kwargs)
+        n = helpers.NotificationTypes
+        if notification_type == n.bot_start:
+            if self.group_topics.is_active():
+                self.group_topics.notify_startup_status(text, reset_message=True)
+            else:
+                self.send_private_notification(text, notification_type)
             return
 
-        if notification_type == helpers.NotificationTypes.bot_start:
-            self.send_private_notification(text, notification_type)
+        if self.group_topics.is_active():
+            self._send_group_notification(text, keyboard, notification_type, photo, pin, kwargs)
             return
 
         logger.debug("Уведомление «%s» пропущено: группа не привязана.", notification_type)
