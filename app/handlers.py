@@ -154,25 +154,18 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
     global LAST_STACK_ID
     if not c.telegram or e.stack.id() == LAST_STACK_ID:
         return
+    LAST_STACK_ID = e.stack.id()
 
     chat_id, chat_name = e.message.chat_id, e.message.chat_name
     if c.bl_msg_notification_enabled and chat_name in c.blacklist:
         return
 
     stack = e.stack.get_stack()
-    buyer_stack = [
-        i for i in stack
-        if i.message.author_id not in (0, c.account.id) and not i.message.by_bot
-    ]
-    if not buyer_stack:
-        return
-
-    gt = c.telegram.group_topics
-    if gt.is_active():
-        if gt.relay_new_message(c, chat_id, chat_name, buyer_stack):
-            LAST_STACK_ID = e.stack.id()
-        else:
-            logger.warning("Не удалось переслать сообщение покупателя %s в топик группы.", chat_name)
+    has_buyer_in_stack = any(
+        i.message.author_id not in (0, c.account.id) and not i.message.by_bot
+        for i in stack
+    )
+    if not has_buyer_in_stack:
         return
 
     events = []
@@ -228,6 +221,11 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
         last_by_bot = i.message.by_bot
 
     if not text.strip():
+        return
+
+    gt = c.telegram.group_topics
+    if gt.is_active():
+        gt.relay_new_message(c, chat_id, chat_name, text, events)
         return
 
     logger.warning("Группа не привязана — уведомление о сообщении от %s пропущено.", chat_name)

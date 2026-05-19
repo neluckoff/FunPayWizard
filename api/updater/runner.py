@@ -179,11 +179,18 @@ class Runner:
             if last_msg_text.startswith(self.account.bot_character):
                 last_msg_text = last_msg_text[1:]
             time_el = chat.find("div", {"class": "contact-item-time"})
-            last_msg_time = time_el.text.strip() if time_el else None
+            last_msg_time = time_el.text.strip() if time_el else ""
+
+            if chat_id in self.last_messages and self.last_messages[chat_id][0] == last_msg_text:
+                if self.last_messages[chat_id][1]:
+                    if not self.__msg_time_re.fullmatch(last_msg_time) or self.last_messages[chat_id][1] == last_msg_time:
+                        continue
+                else:
+                    continue
+
+            unread = True if "unread" in chat.get("class") else False
             name_el = chat.find("div", {"class": "media-user-name"})
             chat_with = name_el.text.strip() if name_el else f"#{chat_id}"
-
-            unread = True if "unread" in chat.get("class", []) else False
             chat_obj = types.ChatShortcut(chat_id, chat_with, last_msg_text, unread, str(chat))
             self.account.add_chats([chat_obj])
             self.last_messages[chat_id] = [last_msg_text, last_msg_time]
@@ -276,7 +283,7 @@ class Runner:
                                 if not temp:
                                     temp.append(i)
                                 break
-                        elif i.text and i.text[:250] == init_msg_text:
+                        elif i.text[:250] == init_msg_text:
                             break
                         temp.append(i)
                     messages = list(reversed(temp))
@@ -292,9 +299,7 @@ class Runner:
             # (последнее сообщение оставить)
             filtered_messages = [messages[0]]  # Добавляем первый элемент
             for i in range(1, len(messages)):
-                prev_text = messages[i - 1].text or ""
-                cur_text = messages[i].text or ""
-                if cur_text != prev_text or messages[i].author_id != messages[i - 1].author_id:
+                if messages[i].text != messages[i - 1].text or messages[i].author_id != messages[i - 1].author_id:
                     filtered_messages.append(messages[i])
             messages[:] = filtered_messages  # Изменяем список на новый
             
