@@ -421,8 +421,8 @@ class Assistant(object):
                 entities.extend(self.split_text(text))
         return entities
 
-    def send_message(self, chat_id: int, message_text: str, chat_name: str | None,  attempts: int = 3,
-                     watermark: bool = True) -> list[api.types.Message] | None:
+    def send_message(self, chat_id: int, message_text: str, chat_name: str | None,
+                     attempts: int = 3) -> list[api.types.Message] | None:
         """
         Отправляет сообщение в чат FunPay.
 
@@ -430,13 +430,9 @@ class Assistant(object):
         :param message_text: текст сообщения.
         :param chat_name: название чата (необязательно).
         :param attempts: кол-во попыток на отправку сообщения.
-        :param watermark: добавлять ли водяной знак в начало сообщения?
 
         :return: объект сообщения / последнего сообщения, если оно доставлено, иначе - None
         """
-        if self.MAIN_CFG["Other"].get("watermark") and watermark and not message_text.strip().startswith("$photo="):
-            message_text = f"{self.MAIN_CFG['Other']['watermark']}\n" + message_text
-
         entities = self.parse_message_entities(message_text)
         if all(isinstance(i, float) for i in entities) or not entities:
             return

@@ -72,7 +72,6 @@ DEFAULT_CONFIG = {
         "check": "0"
     },
     "Other": {
-        "watermark": "",
         "requestsDelay": "4"
     }
 }

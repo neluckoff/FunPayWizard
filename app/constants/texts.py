@@ -29,6 +29,8 @@ mm_plugins = "🧩 Плагины"
 mm_configs = "📁 Конфиги"
 mm_deep_settings = "🔧 Глубокие настройки"
 mm_analytics = "📊 Аналитика"
+mm_profile = "👤 Профиль"
+mm_old_orders = "📋 Старые заказы"
 mm_support = "🆘 Поддержка"
 
 # Кнопки reply-клавиатуры
@@ -293,9 +295,9 @@ test_ad_key_created = """✅ Создан одноразовый ключ для
 Отправь команду снизу в чат с пользователем, которому хочешь выдать товар.\n
 <code>!автовыдача {}</code>"""
 
-about = """<b>🐺 FunPayWizard 🐺 v{}</b>\n
+about = """<b>🧙 FunPayWizard 🧙 v{}</b>\n
 <i>Telegram чат:</i> <a href="https://t.me/FunPayWizard">@FunPayWizard</a>
-<i>Разработчик:</i> NightStranger, Lemarty"""
+<i>Разработчик:</i> <a href="https://neluckoff.me">neluckoff</a>"""
 
 sys_info = """<b><u>Сводка данных</u></b>
 
@@ -321,10 +323,6 @@ not_blacklisted = "❌ <code>{}</code> не в ЧС."
 user_unbanned = "✅ <code>{}</code> удален из ЧС."
 blacklist_empty = "❌ Черный список пуст."
 
-act_edit_watermark = "Введи новый текст водяного знака. Если нужно удалить водяной знак, отправь <code>-</code>."
-watermark_changed = "✅ Водяной знак сообщений изменен."
-watermark_deleted = "✅ Водяной знак сообщений удален."
-watermark_error = "❌ Невалидный водяной знак."
 
 logfile_not_found = "❌ Лог-файл не обнаружен."
 logfile_sending = "Отправлю лог-файл (это может занять какое-то время)..."
@@ -502,11 +500,11 @@ support_open_group = "📢 Группа поддержки"
 community_chat_url = "https://t.me/FunPayWizard"
 support_group_url = "https://t.me/+Z3Fgq6YXytk1ODEy"
 desc_gs = "Здесь ты можешь включать и выключать основные функции <i>FPW</i>."
-desc_ns = """<b>🔔 Уведомления</b>
-
-Одни правила для лички и для группы: если тип включён ниже — бот пришлёт и в ЛС, и (при включённом переключателе сверху) в супергруппу.
-
-<b>Чат настроек:</b> <code>{}</code>"""
+desc_ns = (
+    "<b>🔔 Уведомления</b>\n\n"
+    "Одни настройки для лички и группы.\n"
+    "Если тип включён ниже — бот пришлёт в ЛС и, при 🟢 «Все уведомления в группу», в супергруппу."
+)
 desc_bl = "Здесь ты можешь установить ограничения для пользователей из ЧС."
 desc_ar = "Здесь ты можешь добавить команды или редактировать существующие."
 desc_ar_list = "Выбери интересующую тебя команду / сет команд."
@@ -540,19 +538,18 @@ desc_tmplt = "Здесь вы можете добавлять и удалять 
 # - Описание команд
 cmd_menu = "открыть настройки"
 cmd_profile = "статистика аккаунта"
-cmd_test_lot = "создать ключ выдачи"
+cmd_test_delivery = "тест автовыдачи (ключ !автовыдача)"
 cmd_upload_img = "выгрузить изображение на FunPay"
 cmd_ban = "добавить пользователя в ЧС"
 cmd_unban = "удалить пользователя из ЧС"
 cmd_black_list = "черный список"
-cmd_watermark = "изменить водяной знак сообщений"
 cmd_logs = "загрузить текущий лог-файл"
 cmd_del_logs = "удалить старые лог-файлы"
 cmd_about = "об текущей версии"
 cmd_old_orders = "отправляет список всех незакрытых заказов"
 cmd_sys = "информация о нагрузке на систему"
 cmd_keyboard = "открыть клавиатуру"
-cmd_change_cookie = "меняет golden_key куки"
+cmd_golden_key = "меняет golden key FunPay"
 cmd_restart = "перезапустить FPW"
 cmd_power_off = "выключить FPW"
 
@@ -609,8 +606,6 @@ log_access_granted = "$MAGENTA@{} (ID: {})$RESET получил доступ к 
 log_new_ad_key = "$MAGENTA@{} (ID: {})$RESET создал ключ для выдачи $YELLOW{}$RESET: $CYAN{}$RESET."
 log_user_blacklisted = "$MAGENTA@{} (ID: {})$RESET добавил $YELLOW{}$RESET в ЧС."
 log_user_unbanned = "$MAGENTA@{} (ID: {})$RESET удалил $YELLOW{}$RESET из ЧС."
-log_watermark_changed = "$MAGENTA@{} (ID: {})$RESET изменил водяной знак сообщений на YELLOW{}$RESET."
-log_watermark_deleted = "$MAGENTA@{} (ID: {})$RESET удалил водяной знак сообщений."
 log_greeting_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст приветствия на $YELLOW{}$RESET."
 log_order_confirm_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст ответа на подтверждение заказа на $YELLOW{}$RESET."
 log_review_reply_changed = "$MAGENTA@{} (ID: {})$RESET изменил текст ответа на отзыв с {} зв. на $YELLOW{}$RESET."

@@ -9,7 +9,7 @@ NC='\033[0m'
 set -e
 
 echo -e "${CYAN}Установщик FunPayWizard${NC}"
-echo -e "${MAGENTA}By NightStranger & Lemarty${NC}\n"
+echo -e "${MAGENTA}By neluckoff — https://neluckoff.me${NC}\n"
 
 echo -e "${GREEN}Обновление пакетов...${NC}"
 sudo apt update -y && sudo apt upgrade -y

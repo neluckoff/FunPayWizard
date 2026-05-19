@@ -76,8 +76,8 @@ class GroupTopicsManager:
         if not self.tg.group_notifications_enabled():
             return False
         n = helpers.NotificationTypes
-        return (self.tg.is_notification_enabled_for_any_private(n.review) or
-                self.tg.is_notification_enabled_for_any_private(n.order_confirmed))
+        return (self.tg.is_notification_enabled_globally(n.review) or
+                self.tg.is_notification_enabled_globally(n.order_confirmed))
 
     def ensure_group_notifications(self) -> None:
         """Удаляет устаревшие настройки уведомлений для ID группы."""
@@ -87,7 +87,7 @@ class GroupTopicsManager:
         """Отзывы/подтверждения в системный топик — те же правила, что и для ЛС."""
         if not self.tg.group_notifications_enabled():
             return False
-        return self.tg.is_notification_enabled_for_any_private(notification_type)
+        return self.tg.is_notification_enabled_globally(notification_type)
 
     def _get_star_icon_emoji_id(self) -> str | None:
         cached = self._data.get("system_topic_icon_emoji_id")
@@ -186,13 +186,6 @@ class GroupTopicsManager:
         if not self.is_active():
             return
         chat_id = self.group_chat_id()
-        if not self._system_topic_needed():
-            n = helpers.NotificationTypes
-            settings = self.tg.notification_settings.setdefault(str(chat_id), {})
-            if not settings.get(n.review) and not settings.get(n.order_confirmed):
-                settings[n.review] = 1
-                settings[n.order_confirmed] = 1
-                helpers.save_notification_settings(self.tg.notification_settings)
         if not self._system_topic_needed():
             return
         if self._data.get("system_topic_id"):
@@ -419,7 +412,7 @@ class GroupTopicsManager:
             return False
         if not self.tg.group_notifications_enabled():
             return False
-        if not self.tg.is_notification_enabled_for_any_private(helpers.NotificationTypes.new_message):
+        if not self.tg.is_notification_enabled_globally(helpers.NotificationTypes.new_message):
             return False
         if not events:
             return False

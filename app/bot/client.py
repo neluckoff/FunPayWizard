@@ -88,19 +88,18 @@ class TGBot:
             "start": "первичная настройка / главное меню",
             "menu": _("cmd_menu"),
             "profile": _("cmd_profile"),
-            "test_lot": _("cmd_test_lot"),
+            "test_delivery": _("cmd_test_delivery"),
             "upload_img": _("cmd_upload_img"),
             "ban": _("cmd_ban"),
             "unban": _("cmd_unban"),
             "black_list": _("cmd_black_list"),
-            "watermark": _("cmd_watermark"),
             "logs": _("cmd_logs"),
             "del_logs": _("cmd_del_logs"),
             "about": _("cmd_about"),
             "sys": _("cmd_sys"),
             "old_orders": _("cmd_old_orders"),
             "keyboard": _("cmd_keyboard"),
-            "change_cookie": _("cmd_change_cookie"),
+            "golden_key": _("cmd_golden_key"),
             "restart": _("cmd_restart"),
             "power_off": _("cmd_power_off")
         }
@@ -188,26 +187,54 @@ class TGBot:
             return value.strip().lower() not in ("0", "false", "")
         return bool(value)
 
+    def primary_notification_chat_id(self) -> int | None:
+        """Единый чат настроек уведомлений (личка администратора)."""
+        if self.authorized_users:
+            return self.authorized_users[0]
+        for chat_id in self.notification_settings:
+            if not self._is_group_chat_key(chat_id):
+                try:
+                    return int(chat_id)
+                except ValueError:
+                    continue
+        return None
+
     def is_notification_enabled(self, chat_id: int | str, notification_type: str) -> bool:
         """
-        Включен ли указанный тип уведомлений в указанном чате?
+        Включен ли тип уведомлений (общие настройки, не зависят от chat_id группы).
 
-        :param chat_id: ID Telegram чата.
+        :param chat_id: игнорируется для групп; для совместимости API.
         :param notification_type: тип уведомлений.
         """
+        if self._is_group_chat_key(str(chat_id)):
+            chat_id = self.primary_notification_chat_id()
+            if chat_id is None:
+                return False
         try:
             return self._notification_flag(self.notification_settings[str(chat_id)][notification_type])
         except KeyError:
             return False
 
     def _migrate_notification_settings(self) -> None:
-        """Убирает устаревшие настройки уведомлений для ID группы (теперь одни правила с ЛС)."""
-        removed = [k for k in self.notification_settings if self._is_group_chat_key(k)]
-        if not removed:
-            return
-        for key in removed:
+        """Переносит настройки группы в личку и удаляет отдельные ключи группы."""
+        primary = self.primary_notification_chat_id()
+        changed = False
+        merged: dict = {}
+        for key in list(self.notification_settings):
+            if not self._is_group_chat_key(key):
+                continue
+            for nt, val in self.notification_settings[key].items():
+                merged.setdefault(nt, val)
             del self.notification_settings[key]
-        helpers.save_notification_settings(self.notification_settings)
+            changed = True
+        if primary is not None and merged:
+            store = self.notification_settings.setdefault(str(primary), {})
+            for nt, val in merged.items():
+                if nt not in store:
+                    store[nt] = val
+                    changed = True
+        if changed:
+            helpers.save_notification_settings(self.notification_settings)
 
     @staticmethod
     def _is_group_chat_key(chat_id: str) -> bool:
@@ -221,29 +248,44 @@ class TGBot:
             return False
         return self.assistant.MAIN_CFG["Telegram"].getboolean("groupNotificationsEnabled")
 
-    def is_notification_enabled_for_any_private(self, notification_type: str) -> bool:
-        for chat_id in self.notification_settings:
-            if self._is_group_chat_key(chat_id):
-                continue
-            if self.is_notification_enabled(chat_id, notification_type):
-                return True
-        return False
+    def is_notification_enabled_globally(self, notification_type: str) -> bool:
+        """Включён ли тип в общих настройках (личка = группа)."""
+        primary = self.primary_notification_chat_id()
+        if primary is None:
+            return False
+        return self.is_notification_enabled(primary, notification_type)
 
     def toggle_notification(self, chat_id: int, notification_type: str) -> bool:
         """
-        Переключает указанный тип уведомлений в указанном чате и сохраняет настройки уведомлений.
+        Переключает тип уведомлений в общих настройках (личка и группа).
 
-        :param chat_id: ID Telegram чата.
+        :param chat_id: ID чата из callback (для группы подставляется личка админа).
         :param notification_type: тип уведомлений.
 
-        :return: вкл / выкл указанный тип уведомлений в указанном чате.
+        :return: новое состояние переключателя.
         """
-        chat_id = str(chat_id)
-        if chat_id not in self.notification_settings:
-            self.notification_settings[chat_id] = {}
+        self._migrate_notification_settings()
+        primary = self.primary_notification_chat_id()
+        if primary is None:
+            try:
+                primary = int(chat_id)
+            except (TypeError, ValueError):
+                return False
+        if self._is_group_chat_key(str(chat_id)):
+            chat_id = primary
 
-        enabled = not self.is_notification_enabled(chat_id, notification_type)
-        self.notification_settings[chat_id][notification_type] = enabled
+        store_key = str(primary)
+        if store_key not in self.notification_settings:
+            self.notification_settings[store_key] = {}
+
+        enabled = not self.is_notification_enabled(primary, notification_type)
+        for uid in self.authorized_users:
+            key = str(uid)
+            if key not in self.notification_settings:
+                self.notification_settings[key] = {}
+            self.notification_settings[key][notification_type] = enabled
+        self.notification_settings[store_key][notification_type] = enabled
+        self._migrate_notification_settings()
         helpers.save_notification_settings(self.notification_settings)
         return enabled
 
@@ -501,24 +543,31 @@ class TGBot:
             kb.settings_sections(self.assistant),
         )
 
-    def send_profile(self, m: Message):
-        """
-        Отправляет статистику аккаунта.
-        """
-        new_msg = self.bot.send_message(m.chat.id, _("updating_profile"))
+    def _send_profile_to_chat(self, chat_id: int) -> None:
+        new_msg = self.bot.send_message(chat_id, _("updating_profile"))
         try:
             self.assistant.account.get()
             self.assistant.balance = self.assistant.get_balance()
-            self.bot.send_message(m.chat.id, helpers.generate_profile_text(self.assistant),
-                                  reply_markup=telebot.types.InlineKeyboardMarkup()
-                                  .add(telebot.types.InlineKeyboardButton("🔄 Обновить", callback_data="update_profile"))
-                                  .add(telebot.types.InlineKeyboardButton("▶️ Еще", callback_data="update_adv_profile"))
-                                  )
+            self.bot.send_message(
+                chat_id,
+                helpers.generate_profile_text(self.assistant),
+                reply_markup=telebot.types.InlineKeyboardMarkup()
+                .add(telebot.types.InlineKeyboardButton("🔄 Обновить", callback_data="update_profile"))
+                .add(telebot.types.InlineKeyboardButton("▶️ Еще", callback_data="update_adv_profile")),
+            )
             self.bot.delete_message(new_msg.chat.id, new_msg.id)
-        except:
+        except Exception:
             self.bot.edit_message_text(_("profile_updating_error"), new_msg.chat.id, new_msg.id)
             logger.debug("TRACEBACK", exc_info=True)
-            return
+
+    def send_profile(self, m: Message):
+        """Отправляет статистику аккаунта."""
+        self._send_profile_to_chat(m.chat.id)
+
+    def open_menu_profile(self, c: CallbackQuery):
+        """Профиль из главного меню."""
+        self.bot.answer_callback_query(c.id)
+        self._send_profile_to_chat(c.message.chat.id)
 
     def update_profile(self, c: CallbackQuery):
         """
@@ -541,10 +590,10 @@ class TGBot:
             logger.debug("TRACEBACK", exc_info=True)
             return
 
-    def change_cookie(self, m: telebot.types.Message):
+    def golden_key(self, m: telebot.types.Message):
         parts = m.text.split(maxsplit=1)
         if len(parts) != 2:
-            self.bot.send_message(m.chat.id, "Команда введена не правильно! /change_cookie [golden_key]")
+            self.bot.send_message(m.chat.id, "Команда введена неправильно: /golden_key <ключ>")
             return
 
         new_golden_key = parts[1].strip()
@@ -587,11 +636,11 @@ class TGBot:
             logger.debug("TRACEBACK", exc_info=True)
             return
 
-    def send_orders(self, m: telebot.types.Message):
-        new_mes = self.bot.send_message(m.chat.id, "Сканирую заказы (это может занять какое-то время)...")
+    def _send_old_orders_to_chat(self, chat_id: int) -> None:
+        new_mes = self.bot.send_message(chat_id, "Сканирую заказы (это может занять какое-то время)...")
         try:
             orders = helpers.get_all_open_orders(self.assistant.account)
-        except:
+        except Exception:
             self.bot.edit_message_text("❌ Не удалось получить список заказов.", new_mes.chat.id, new_mes.id)
             logger.debug("TRACEBACK", exc_info=True)
             return
@@ -601,8 +650,20 @@ class TGBot:
             return
 
         orders_text = ", ".join(orders)
-        text = f"Здравствуйте!\n\nПрошу подтвердить выполнение следующих заказов:\n{orders_text}\n\nЗаранее благодарю,\nС уважением."
+        text = (
+            "Здравствуйте!\n\n"
+            f"Прошу подтвердить выполнение следующих заказов:\n{orders_text}\n\n"
+            "Заранее благодарю,\nС уважением."
+        )
         self.bot.edit_message_text(f"<code>{helpers.escape(text)}</code>", new_mes.chat.id, new_mes.id)
+
+    def send_orders(self, m: telebot.types.Message):
+        self._send_old_orders_to_chat(m.chat.id)
+
+    def open_menu_old_orders(self, c: CallbackQuery):
+        """Старые заказы из главного меню."""
+        self.bot.answer_callback_query(c.id)
+        self._send_old_orders_to_chat(c.message.chat.id)
 
     def act_manual_delivery_test(self, m: Message):
         """
@@ -708,29 +769,6 @@ class TGBot:
                 "Группа привязана вручную пользователем %s (ID: %s): %s",
                 m.from_user.username, m.from_user.id, self.group_topics.group_chat_id(),
             )
-
-    def act_edit_watermark(self, m: Message):
-        """
-        Активирует режим ввода вотемарки сообщений.
-        """
-        result = self.bot.send_message(m.chat.id, _("act_edit_watermark"), reply_markup=presets.CLEAR_STATE_BTN())
-        self.set_state(m.chat.id, result.id, m.from_user.id, cb.EDIT_WATERMARK)
-
-    def edit_watermark(self, m: Message):
-        self.clear_state(m.chat.id, m.from_user.id, True)
-        watermark = m.text if m.text != "-" else ""
-        if re.fullmatch(r"\[[a-zA-Z]+]", watermark):
-            self.bot.reply_to(m, _("watermark_error"))
-            return
-
-        self.assistant.MAIN_CFG["Other"]["watermark"] = watermark
-        self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
-        if watermark:
-            logger.info(_("log_watermark_changed", m.from_user.username, m.from_user.id, watermark))
-            self.bot.reply_to(m, _("watermark_changed", watermark))
-        else:
-            logger.info(_("log_watermark_deleted", m.from_user.username, m.from_user.id))
-            self.bot.reply_to(m, _("watermark_deleted"))
 
     def send_logs(self, m: Message):
         """
@@ -1143,16 +1181,17 @@ class TGBot:
 
     def switch_chat_notification(self, c: CallbackQuery):
         split = c.data.split(":")
-        chat_id, notification_type = int(split[1]), split[2]
+        notification_type = split[2]
+        pm_chat_id = self.primary_notification_chat_id() or int(split[1])
 
-        result = self.toggle_notification(chat_id, notification_type)
+        result = self.toggle_notification(pm_chat_id, notification_type)
         logger.info(_("log_notification_switched", c.from_user.username, c.from_user.id,
-                      notification_type, chat_id, result))
+                      notification_type, pm_chat_id, result))
         keyboard = kb.announcements_settings if notification_type in [helpers.NotificationTypes.announcement,
                                                                       helpers.NotificationTypes.ad] \
             else kb.notifications_settings
         self.bot.edit_message_reply_markup(c.message.chat.id, c.message.id,
-                                           reply_markup=keyboard(self.assistant, chat_id))
+                                           reply_markup=keyboard(self.assistant, pm_chat_id))
         self.bot.answer_callback_query(c.id)
 
     def toggle_group_notifications(self, c: CallbackQuery):
@@ -1165,8 +1204,7 @@ class TGBot:
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
         self._migrate_notification_settings()
 
-        parts = c.data.split(":")
-        pm_chat_id = int(parts[1]) if len(parts) > 1 else c.message.chat.id
+        pm_chat_id = self.primary_notification_chat_id() or c.message.chat.id
         self.bot.edit_message_reply_markup(
             c.message.chat.id,
             c.message.id,
@@ -1180,9 +1218,10 @@ class TGBot:
         """
         #
         section = c.data.split(":")[1]
+        pm_chat_id = self.primary_notification_chat_id() or c.message.chat.id
         sections = {
             "main": (_("desc_gs"), kb.main_settings, [self.assistant]),
-            "tg": (_("desc_ns", c.message.chat.id), kb.notifications_settings, [self.assistant, c.message.chat.id]),
+            "tg": (_("desc_ns"), kb.notifications_settings, [self.assistant, pm_chat_id]),
             "bl": (_("desc_bl"), kb.blacklist_settings, [self.assistant]),
             "ar": (_("desc_ar"), presets.AR_SETTINGS, []),
             "ad": (_("desc_ad"), presets.AD_SETTINGS, []),
@@ -1306,9 +1345,9 @@ class TGBot:
         self.cbq_handler(self.update_adv_profile, lambda c: c.data == "update_adv_profile")
         self.msg_handler(self.send_profile, commands=["profile"])
         self.msg_handler(self.send_orders, commands=["old_orders"])
-        self.msg_handler(self.change_cookie, commands=["change_cookie"])
+        self.msg_handler(self.golden_key, commands=["golden_key"])
         self.cbq_handler(self.update_profile, lambda c: c.data == cb.UPDATE_PROFILE)
-        self.msg_handler(self.act_manual_delivery_test, commands=["test_lot"])
+        self.msg_handler(self.act_manual_delivery_test, commands=["test_delivery"])
         self.msg_handler(self.act_upload_image, commands=["upload_img"])
         self.cbq_handler(self.act_set_group_chat_id, lambda c: c.data == cb.EDIT_GROUP_CHAT_ID)
         self.msg_handler(self.set_group_chat_id,
@@ -1329,9 +1368,6 @@ class TGBot:
         self.msg_handler(self.act_unban, commands=["unban"])
         self.msg_handler(self.unban, func=lambda m: self.check_state(m.chat.id, m.from_user.id, cb.UNBAN))
         self.msg_handler(self.send_ban_list, commands=["black_list"])
-        self.msg_handler(self.act_edit_watermark, commands=["watermark"])
-        self.msg_handler(self.edit_watermark,
-                         func=lambda m: self.check_state(m.chat.id, m.from_user.id, cb.EDIT_WATERMARK))
         self.msg_handler(self.send_logs, commands=["logs"])
         self.msg_handler(self.del_logs, commands=["del_logs"])
         self.msg_handler(self.about, commands=["about"])
@@ -1357,6 +1393,8 @@ class TGBot:
         self.cbq_handler(self.refund, lambda c: c.data.startswith(f"{cb.REFUND_CONFIRMED}:"))
         self.cbq_handler(self.open_order_menu, lambda c: c.data.startswith(f"{cb.BACK_TO_ORDER_KB}:"))
         self.cbq_handler(self.open_cp, lambda c: c.data == cb.MAIN)
+        self.cbq_handler(self.open_menu_profile, lambda c: c.data == cb.MENU_PROFILE)
+        self.cbq_handler(self.open_menu_old_orders, lambda c: c.data == cb.MENU_OLD_ORDERS)
         self.cbq_handler(self.open_deep_settings, lambda c: c.data == cb.DEEP_SETTINGS)
         self.cbq_handler(self.open_analytics_menu, lambda c: c.data == cb.ANALYTICS)
         self.cbq_handler(self.toggle_analytics_section, lambda c: c.data.startswith(f"{cb.ANALYTICS_TOGGLE}:"))
@@ -1442,7 +1480,7 @@ class TGBot:
             self.group_topics.is_active()
             and self.group_notifications_enabled()
             and notification_type not in (n.review, n.order_confirmed, n.new_message)
-            and self.is_notification_enabled_for_any_private(notification_type)
+            and self.is_notification_enabled_globally(notification_type)
         ):
             gid = self.group_topics.group_chat_id()
             if gid:

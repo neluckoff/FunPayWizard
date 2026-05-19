@@ -66,12 +66,13 @@ def settings_sections(c: Assistant) -> K:
         B(_("mm_global"), callback_data=f"{cb.CATEGORY}:main"),
         B(_("mm_notifications"), callback_data=f"{cb.CATEGORY}:tg"),
     ).row(
-        B(_("mm_new_msg_view"), callback_data=f"{cb.CATEGORY}:mv"),
+        B(_("mm_profile"), callback_data=cb.MENU_PROFILE),
+        B(_("mm_old_orders"), callback_data=cb.MENU_OLD_ORDERS),
+    ).row(
         B(_("mm_group_topics"), callback_data=f"{cb.CATEGORY}:gt"),
-    ).row(
         B(_("mm_analytics"), callback_data=cb.ANALYTICS),
-        B(_("mm_deep_settings"), callback_data=cb.DEEP_SETTINGS),
     ).row(
+        B(_("mm_deep_settings"), callback_data=cb.DEEP_SETTINGS),
         B(_("mm_support"), callback_data=f"{cb.CATEGORY}:sp"),
     )
     return kb
@@ -119,6 +120,7 @@ def deep_settings_sections(c: Assistant) -> K:
         B(_("mm_order_confirm"), callback_data=f"{cb.CATEGORY}:oc"),
     ).row(
         B(_("mm_review_reply"), callback_data=f"{cb.CATEGORY}:rr"),
+        B(_("mm_new_msg_view"), callback_data=f"{cb.CATEGORY}:mv"),
     ).add(
         B(_("mm_configs"), callback_data="config_loader"),
     ).add(
@@ -175,7 +177,7 @@ def new_message_view_settings(c: Assistant) -> K:
         B(_("mv_only_fp_msg", l("notifyOnlyFPMessages")), None, f"{p}:notifyOnlyFPMessages"),
     )
     kb.add(B(_("mv_only_bot_msg", l("notifyOnlyBotMessages")), callback_data=f"{p}:notifyOnlyBotMessages"))
-    kb.add(B(_("gl_back"), None, cb.MAIN))
+    kb.add(B(_("gl_back_to_deep"), None, cb.DEEP_SETTINGS))
     return kb
 
 
@@ -250,24 +252,25 @@ def group_topics_settings(c: Assistant) -> K:
 
 def notifications_settings(c: Assistant, chat_id: int) -> K:
     """
-    Генерирует клавиатуру настроек уведомлений (cb.CATEGORY:telegram).
+    Генерирует клавиатуру общих настроек уведомлений (cb.CATEGORY:telegram).
 
     :param c: объект ассистента.
-    :param chat_id: ID чата, в котором вызвана клавиатура.
+    :param chat_id: ID лички администратора (единое хранилище настроек).
 
     :return: объект клавиатуры настроек уведомлений.
     """
-    p = f"{cb.SWITCH_TG_NOTIFICATIONS}:{chat_id}"
+    store_id = c.telegram.primary_notification_chat_id() or chat_id
+    p = f"{cb.SWITCH_TG_NOTIFICATIONS}:{store_id}"
     n = NotificationTypes
 
     def l(nt):
-        return '🔔' if c.telegram.is_notification_enabled(chat_id, nt) else '🔕'
+        return '🔔' if c.telegram.is_notification_enabled(store_id, nt) else '🔕'
 
     kb = K()
     if c.telegram.group_topics.is_active():
         to_group = c.MAIN_CFG["Telegram"].getboolean("groupNotificationsEnabled")
         group_mark = "🟢" if to_group else "🔴"
-        kb.add(B(_("ns_all_to_group", group_mark), callback_data=f"{cb.TOGGLE_GROUP_NOTIFICATIONS}:{chat_id}"))
+        kb.add(B(_("ns_all_to_group", group_mark), callback_data=f"{cb.TOGGLE_GROUP_NOTIFICATIONS}:{store_id}"))
     kb.row(B(_("ns_new_msg", l(n.new_message)), None, f"{p}:{n.new_message}"),
              B(_("ns_cmd", l(n.command)), None, f"{p}:{n.command}"))\
         .row(B(_("ns_new_order", l(n.new_order)), None, f"{p}:{n.new_order}"),
