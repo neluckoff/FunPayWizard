@@ -680,6 +680,11 @@ def templates_list_ans_mode(c: Assistant, offset: int, node_id: int, username: s
     return kb
 
 
+def buyer_topic_bar(c: Assistant, fp_chat_id: int) -> K:
+    """Закреплённая панель в топике покупателя — кнопка вызова шаблонов."""
+    return K().add(B(_("gt_templates_btn"), None, f"{cb.GT_SHOW_TMPLT}:{fp_chat_id}"))
+
+
 def buyer_topic_templates(c: Assistant, fp_chat_id: int, username: str, offset: int = 0) -> K:
     """
     Inline-клавиатура шаблонов в топике покупателя (только отправка, без редактирования).

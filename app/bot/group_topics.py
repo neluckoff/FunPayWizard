@@ -21,12 +21,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger("TGBot.group_topics")
 
 CACHE_PATH = "storage/cache/group_topics.json"
-SYSTEM_TOPIC_NAME = "⭐ Отзывы и подтверждения заказов"
+# В Telegram заголовок топика без эмодзи; звезда — иконка темы (icon_custom_emoji_id).
+SYSTEM_TOPIC_NAME = "Отзывы и подтверждения заказов"
 SYSTEM_TOPIC_ICON_COLOR = 16766590  # запасной цвет, если emoji-иконка недоступна
 SYSTEM_TOPIC_ICON_EMOJIS = ("⭐", "🌟", "★", "⭐️")
 TOPIC_NAME_MAX_LEN = 128
 
 class GroupTopicsManager:
+    @staticmethod
+    def _is_system_topic_name(name: str | None) -> bool:
+        if not name:
+            return False
+        stripped = name.strip()
+        if stripped == SYSTEM_TOPIC_NAME:
+            return True
+        normalized = stripped.lstrip("⭐🌟★⭐️ ").strip()
+        return normalized == SYSTEM_TOPIC_NAME
+
     def __init__(self, tg: "TGBot"):
         self.tg = tg
         self._system_topic_lock = Lock()
@@ -98,7 +109,7 @@ class GroupTopicsManager:
             if self._is_topic_missing_error(exc):
                 return False
             name = self._get_forum_topic_name(chat_id, thread_id)
-            return name is not None
+            return self._is_system_topic_name(name)
 
     def _find_existing_system_topic(self, chat_id: int) -> int | None:
         candidates: list[int] = []
@@ -124,13 +135,13 @@ class GroupTopicsManager:
             if tid in seen:
                 continue
             seen.add(tid)
-            if self._get_forum_topic_name(chat_id, tid) == SYSTEM_TOPIC_NAME:
+            if self._is_system_topic_name(self._get_forum_topic_name(chat_id, tid)):
                 return tid
 
         for tid in range(2, 51):
             if tid in seen:
                 continue
-            if self._get_forum_topic_name(chat_id, tid) == SYSTEM_TOPIC_NAME:
+            if self._is_system_topic_name(self._get_forum_topic_name(chat_id, tid)):
                 return tid
         return None
 
@@ -247,7 +258,7 @@ class GroupTopicsManager:
         created = getattr(m, "forum_topic_created", None)
         if not created or not self.is_active() or m.chat.id != self.group_chat_id():
             return
-        if created.name != SYSTEM_TOPIC_NAME:
+        if not self._is_system_topic_name(created.name):
             return
 
         thread_id = m.message_thread_id
@@ -460,7 +471,58 @@ class GroupTopicsManager:
             except Exception:
                 logger.debug("Не удалось обновить клавиатуру шаблонов в топике %s.", username, exc_info=True)
 
-    def _ensure_templates_panel(self, fp_chat_id: int, username: str, thread_id: int) -> None:
+    def _ensure_buyer_topic_pin(self, fp_chat_id: int, username: str, thread_id: int) -> None:
+        """Закрепляет в топике короткую панель с кнопкой «Шаблоны»."""
+        key = str(fp_chat_id)
+        buyer = self._data.setdefault("buyer_topics", {}).setdefault(key, {
+            "thread_id": thread_id,
+            "username": username,
+        })
+        buyer["thread_id"] = thread_id
+        buyer["username"] = username
+        gid = self.group_chat_id()
+        if not gid:
+            return
+
+        text = _("gt_buyer_topic_pin", helpers.escape(username), fp_chat_id)
+        markup = keyboards.buyer_topic_bar(self.assistant, fp_chat_id)
+        pinned_id = buyer.get("pinned_msg_id")
+
+        if pinned_id:
+            try:
+                self.tg.bot.edit_message_text(
+                    text,
+                    gid,
+                    pinned_id,
+                    message_thread_id=thread_id,
+                    reply_markup=markup,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+                return
+            except Exception:
+                logger.debug("Не удалось обновить закреплённую панель в топике %s.", username, exc_info=True)
+
+        try:
+            msg = self.tg.bot.send_message(
+                gid,
+                text,
+                message_thread_id=thread_id,
+                reply_markup=markup,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                disable_notification=True,
+            )
+            buyer["pinned_msg_id"] = msg.message_id
+            self._save()
+            if not self._pin_chat_message(gid, msg.message_id, thread_id):
+                logger.warning("Не удалось закрепить панель в топике %s.", username)
+        except Exception:
+            logger.warning("Не удалось отправить панель в топик %s.", username)
+            logger.debug("TRACEBACK", exc_info=True)
+
+    def show_templates_picker(self, fp_chat_id: int, username: str, thread_id: int) -> None:
+        """Отправляет (или обновляет) сообщение со списком шаблонов по кнопке «Шаблоны»."""
         key = str(fp_chat_id)
         buyer = self._data.setdefault("buyer_topics", {}).setdefault(key, {
             "thread_id": thread_id,
@@ -468,20 +530,23 @@ class GroupTopicsManager:
         })
         markup = keyboards.buyer_topic_templates(self.assistant, fp_chat_id, username, 0)
         gid = self.group_chat_id()
+        if not gid:
+            return
 
-        if buyer.get("templates_msg_id"):
+        picker_id = buyer.get("templates_msg_id")
+        if picker_id:
             try:
                 self.tg.bot.edit_message_text(
                     _("gt_buyer_templates"),
                     gid,
-                    buyer["templates_msg_id"],
+                    picker_id,
                     message_thread_id=thread_id,
                     reply_markup=markup,
                     parse_mode="HTML",
                 )
                 return
             except Exception:
-                logger.debug("Не удалось обновить панель шаблонов.", exc_info=True)
+                logger.debug("Не удалось обновить список шаблонов — отправлю новый.", exc_info=True)
 
         try:
             msg = self.tg.bot.send_message(
@@ -495,7 +560,7 @@ class GroupTopicsManager:
             buyer["templates_msg_id"] = msg.message_id
             self._save()
         except Exception:
-            logger.warning("Не удалось отправить панель шаблонов в топик %s.", username)
+            logger.warning("Не удалось отправить список шаблонов в топик %s.", username)
             logger.debug("TRACEBACK", exc_info=True)
 
     def _get_or_create_buyer_topic(self, fp_chat_id: int, username: str) -> int | None:
@@ -503,8 +568,8 @@ class GroupTopicsManager:
         existing = self._data.get("buyer_topics", {}).get(key)
         if existing:
             thread_id = existing["thread_id"]
-            if not existing.get("templates_msg_id"):
-                self._ensure_templates_panel(fp_chat_id, username, thread_id)
+            if not existing.get("pinned_msg_id"):
+                self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
             return thread_id
 
         gid = self.group_chat_id()
@@ -526,7 +591,7 @@ class GroupTopicsManager:
         self._data.setdefault("thread_by_id", {})[str(thread_id)] = key
         self._save()
         logger.info("Создан топик для %s (FunPay chat %s, thread %s).", username, fp_chat_id, thread_id)
-        self._ensure_templates_panel(fp_chat_id, username, thread_id)
+        self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
         return thread_id
 
     @staticmethod
@@ -566,17 +631,7 @@ class GroupTopicsManager:
         if not gid:
             return False
 
-        try:
-            self.tg.bot.send_message(
-                gid,
-                f"💬 <b>{helpers.escape(username)}</b> · <a href=\"https://funpay.com/chat/?node={fp_chat_id}\">FunPay</a>",
-                message_thread_id=thread_id,
-                parse_mode="HTML",
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            logger.warning("Не удалось отправить якорь в топик %s.", username)
-            logger.debug("TRACEBACK", exc_info=True)
+        self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
 
         link = self.forum_topic_link(gid, thread_id)
         markup = K().add(B(_("gt_open_topic_btn"), url=link))

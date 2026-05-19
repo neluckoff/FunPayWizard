@@ -153,6 +153,20 @@ def register_templates(assistant: Assistant, *args):
     def _is_private(c: CallbackQuery) -> bool:
         return c.message.chat.type == "private"
 
+    def gt_show_templates(c: CallbackQuery):
+        if not assistant.telegram.group_topics.is_buyer_topic(c.message.message_thread_id):
+            bot.answer_callback_query(c.id)
+            return
+        fp_chat_id = int(c.data.split(":")[1])
+        username = assistant.telegram.group_topics.get_buyer_username(fp_chat_id)
+        if not username:
+            bot.answer_callback_query(c.id, _("gt_send_failed"), show_alert=True)
+            return
+        assistant.telegram.group_topics.show_templates_picker(
+            fp_chat_id, username, c.message.message_thread_id,
+        )
+        bot.answer_callback_query(c.id)
+
     def gt_templates_page(c: CallbackQuery):
         if not assistant.telegram.group_topics.is_buyer_topic(c.message.message_thread_id):
             bot.answer_callback_query(c.id)
@@ -198,6 +212,7 @@ def register_templates(assistant: Assistant, *args):
     tg.msg_handler(add_template, func=lambda m: tg.check_state(m.chat.id, m.from_user.id, cb.ADD_TMPLT) and m.chat.type == "private")
     tg.cbq_handler(del_template, lambda c: c.data.startswith(f"{cb.DEL_TMPLT}:") and _is_private(c))
     tg.cbq_handler(send_template, lambda c: c.data.startswith(f"{cb.SEND_TMPLT}:"))
+    tg.cbq_handler(gt_show_templates, lambda c: c.data.startswith(f"{cb.GT_SHOW_TMPLT}:"))
     tg.cbq_handler(gt_templates_page, lambda c: c.data.startswith(f"{cb.GT_TMPLT_LIST}:"))
     tg.cbq_handler(gt_send_template, lambda c: c.data.startswith(f"{cb.GT_SEND_TMPLT}:"))
 
