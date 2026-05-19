@@ -132,7 +132,7 @@ class Runner:
             :class:`FunPayAPI.updater.events.OrderStatusChangedEvent`
         """
         events = []
-        for obj in updates["objects"]:
+        for obj in updates.get("objects") or []:
             if obj.get("type") == "chat_bookmarks":
                 events.extend(self.parse_chat_updates(obj))
             elif obj.get("type") == "orders_counters":
@@ -159,7 +159,13 @@ class Runner:
         """
         events, lcmc_events = [], []
         self.__last_msg_event_tag = obj.get("tag")
-        parser = BeautifulSoup(obj["data"]["html"], "html.parser")
+        data = obj.get("data")
+        if not isinstance(data, dict):
+            return events
+        html = data.get("html")
+        if not html:
+            return events
+        parser = BeautifulSoup(html, "html.parser")
         chats = parser.find_all("a", {"class": "contact-item"})
 
         # Получаем все изменившиеся чаты
@@ -177,7 +183,7 @@ class Runner:
             name_el = chat.find("div", {"class": "media-user-name"})
             chat_with = name_el.text.strip() if name_el else f"#{chat_id}"
 
-            unread = True if "unread" in chat.get("class") else False
+            unread = True if "unread" in chat.get("class", []) else False
             chat_obj = types.ChatShortcut(chat_id, chat_with, last_msg_text, unread, str(chat))
             self.account.add_chats([chat_obj])
             self.last_messages[chat_id] = [last_msg_text, last_msg_time]
@@ -315,9 +321,13 @@ class Runner:
         """
         events = []
         self.__last_order_event_tag = obj.get("tag")
-        if not self.__first_request:
-            events.append(OrdersListChangedEvent(self.__last_order_event_tag,
-                                                 obj["data"]["buyer"], obj["data"]["seller"]))
+        data = obj.get("data")
+        if not self.__first_request and isinstance(data, dict):
+            events.append(OrdersListChangedEvent(
+                self.__last_order_event_tag,
+                data.get("buyer", 0),
+                data.get("seller", 0),
+            ))
         if not self.make_order_requests:
             return events
 
@@ -392,9 +402,6 @@ class Runner:
             self.by_bot_ids[chat_id] = [message_id]
         else:
             self.by_bot_ids[chat_id].append(message_id)
-        prev = self.last_messages_ids.get(chat_id, 0)
-        if message_id > prev:
-            self.last_messages_ids[chat_id] = message_id
 
     def listen(self, requests_delay: int | float = 6.0,
                ignore_exceptions: bool = True) -> Generator[InitialChatEvent | ChatsListChangedEvent |
@@ -428,8 +435,10 @@ class Runner:
             except Exception as e:
                 if not ignore_exceptions:
                     raise e
-                else:
-                    logger.error("Произошла ошибка при получении событий. "
-                                 "(ничего страшного, если это сообщение появляется нечасто).")
-                    logger.debug("TRACEBACK", exc_info=True)
+                logger.error(
+                    "Произошла ошибка при получении событий: %s "
+                    "(ничего страшного, если это сообщение появляется нечасто).",
+                    e,
+                    exc_info=True,
+                )
             time.sleep(requests_delay)
