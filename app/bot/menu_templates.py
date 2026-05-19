@@ -201,6 +201,7 @@ def register_templates(assistant: Assistant, *args):
         text = tg.answer_templates[template_index].replace("$username", username)
         result = assistant.send_message(fp_chat_id, text, username)
         if result:
+            assistant.telegram.group_topics.dismiss_templates_picker(fp_chat_id, c.message.message_id)
             bot.answer_callback_query(c.id, _("gt_template_sent"))
         else:
             bot.answer_callback_query(c.id, _("gt_send_failed"), show_alert=True)

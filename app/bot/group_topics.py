@@ -41,6 +41,7 @@ class GroupTopicsManager:
     def __init__(self, tg: "TGBot"):
         self.tg = tg
         self._system_topic_lock = Lock()
+        self._buyer_topics_lock = Lock()
         self._data = helpers.load_json_cache(CACHE_PATH, {
             "system_topic_id": None,
             "buyer_topics": {},
@@ -258,12 +259,14 @@ class GroupTopicsManager:
             tg_api._make_request(self.tg.bot.token, "pinChatMessage", params, method="post")
             return True
         except Exception:
-            try:
-                self.tg.bot.pin_chat_message(chat_id, message_id, disable_notification=True)
-                return True
-            except Exception:
-                logger.debug("pinChatMessage failed", exc_info=True)
-                return False
+            if message_thread_id is None:
+                try:
+                    self.tg.bot.pin_chat_message(chat_id, message_id, disable_notification=True)
+                    return True
+                except Exception:
+                    pass
+            logger.debug("pinChatMessage failed (thread_id=%s).", message_thread_id, exc_info=True)
+            return False
 
     def on_forum_topic_created(self, m: Message) -> None:
         """Привязывает системный топик и закрепляет его в списке тем."""
@@ -458,6 +461,56 @@ class GroupTopicsManager:
             return name[:TOPIC_NAME_MAX_LEN]
         return name
 
+    def _is_buyer_topic_title(self, name: str | None, username: str) -> bool:
+        if not name or not username:
+            return False
+        expected = self._topic_title(username)
+        if name == expected:
+            return True
+        return name.startswith("👤 ") and username in name
+
+    def _register_buyer_topic(self, fp_chat_id: int, username: str, thread_id: int) -> None:
+        key = str(fp_chat_id)
+        old = self._data.get("buyer_topics", {}).get(key, {})
+        self._data.setdefault("buyer_topics", {})[key] = {
+            "thread_id": thread_id,
+            "username": username,
+            "pinned_msg_id": old.get("pinned_msg_id"),
+            "templates_msg_id": old.get("templates_msg_id"),
+        }
+        self._data.setdefault("thread_by_id", {})[str(thread_id)] = key
+        self._save()
+
+    def _find_buyer_topic_by_username(self, username: str) -> tuple[int, int] | None:
+        """Возвращает (fp_chat_id, thread_id) по имени покупателя."""
+        gid = self.group_chat_id()
+        if not gid:
+            return None
+
+        for key, buyer in self._data.get("buyer_topics", {}).items():
+            if buyer.get("username") != username:
+                continue
+            thread_id = buyer.get("thread_id")
+            if not thread_id:
+                continue
+            try:
+                fp_chat_id = int(key)
+            except (TypeError, ValueError):
+                continue
+            if self._forum_topic_accessible(gid, thread_id):
+                return fp_chat_id, thread_id
+
+        for tid in range(2, 201):
+            if self._is_buyer_topic_title(self._get_forum_topic_name(gid, tid), username):
+                for key, buyer in self._data.get("buyer_topics", {}).items():
+                    if buyer.get("thread_id") == tid:
+                        try:
+                            return int(key), tid
+                        except (TypeError, ValueError):
+                            break
+                return None, tid
+        return None
+
     def get_buyer_username(self, fp_chat_id: int) -> str | None:
         buyer = self._data.get("buyer_topics", {}).get(str(fp_chat_id))
         return buyer.get("username") if buyer else None
@@ -514,9 +567,12 @@ class GroupTopicsManager:
                     parse_mode="HTML",
                     disable_web_page_preview=True,
                 )
-                return
+                if self._pin_chat_message(gid, pinned_id, thread_id):
+                    return
+                logger.warning("Панель в топике %s есть, но закрепить не удалось — отправлю заново.", username)
             except Exception:
                 logger.debug("Не удалось обновить закреплённую панель в топике %s.", username, exc_info=True)
+            buyer.pop("pinned_msg_id", None)
 
         try:
             msg = self.tg.bot.send_message(
@@ -532,6 +588,8 @@ class GroupTopicsManager:
             self._save()
             if not self._pin_chat_message(gid, msg.message_id, thread_id):
                 logger.warning("Не удалось закрепить панель в топике %s.", username)
+            else:
+                logger.debug("Панель закреплена в топике %s (msg %s).", username, msg.message_id)
         except Exception:
             logger.warning("Не удалось отправить панель в топик %s.", username)
             logger.debug("TRACEBACK", exc_info=True)
@@ -578,34 +636,60 @@ class GroupTopicsManager:
             logger.warning("Не удалось отправить список шаблонов в топик %s.", username)
             logger.debug("TRACEBACK", exc_info=True)
 
-    def _get_or_create_buyer_topic(self, fp_chat_id: int, username: str) -> int | None:
-        key = str(fp_chat_id)
-        existing = self._data.get("buyer_topics", {}).get(key)
-        if existing:
-            thread_id = existing["thread_id"]
-            if not existing.get("pinned_msg_id"):
-                self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
-            return thread_id
+    def dismiss_templates_picker(self, fp_chat_id: int, message_id: int) -> None:
+        """Удаляет сообщение с выбором шаблона и сбрасывает его ID в кэше."""
+        gid = self.group_chat_id()
+        if gid:
+            try:
+                self.tg.bot.delete_message(gid, message_id)
+            except Exception:
+                logger.debug("Не удалось удалить сообщение с шаблонами.", exc_info=True)
 
+        key = str(fp_chat_id)
+        buyer = self._data.get("buyer_topics", {}).get(key)
+        if buyer and buyer.get("templates_msg_id") == message_id:
+            buyer.pop("templates_msg_id", None)
+            self._save()
+
+    def _get_or_create_buyer_topic(self, fp_chat_id: int, username: str) -> int | None:
         gid = self.group_chat_id()
         if not gid:
             return None
 
-        try:
-            topic: ForumTopic = self.tg.bot.create_forum_topic(gid, self._topic_title(username))
-            thread_id = topic.message_thread_id
-        except Exception:
-            logger.error("Не удалось создать топик для покупателя %s.", username)
-            logger.debug("TRACEBACK", exc_info=True)
-            return None
+        with self._buyer_topics_lock:
+            key = str(fp_chat_id)
+            existing = self._data.get("buyer_topics", {}).get(key)
+            if existing:
+                thread_id = existing["thread_id"]
+                if self._forum_topic_accessible(gid, thread_id):
+                    existing["username"] = username
+                    self._save()
+                    self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
+                    return thread_id
 
-        self._data.setdefault("buyer_topics", {})[key] = {
-            "thread_id": thread_id,
-            "username": username,
-        }
-        self._data.setdefault("thread_by_id", {})[str(thread_id)] = key
-        self._save()
-        logger.info("Создан топик для %s (FunPay chat %s, thread %s).", username, fp_chat_id, thread_id)
+            found = self._find_buyer_topic_by_username(username)
+            if found:
+                found_fp, thread_id = found
+                if found_fp is not None and found_fp != fp_chat_id:
+                    logger.info(
+                        "Найден топик покупателя %s (thread %s), привязываю к чату %s.",
+                        username, thread_id, fp_chat_id,
+                    )
+                self._register_buyer_topic(fp_chat_id, username, thread_id)
+                self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
+                return thread_id
+
+            try:
+                topic: ForumTopic = self.tg.bot.create_forum_topic(gid, self._topic_title(username))
+                thread_id = topic.message_thread_id
+            except Exception:
+                logger.error("Не удалось создать топик для покупателя %s.", username)
+                logger.debug("TRACEBACK", exc_info=True)
+                return None
+
+            self._register_buyer_topic(fp_chat_id, username, thread_id)
+            logger.info("Создан топик для %s (FunPay chat %s, thread %s).", username, fp_chat_id, thread_id)
+
         self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
         return thread_id
 
