@@ -171,6 +171,8 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
     if gt.is_active():
         if gt.relay_new_message(c, chat_id, chat_name, buyer_stack):
             LAST_STACK_ID = e.stack.id()
+        else:
+            logger.warning("Не удалось переслать сообщение покупателя %s в топик группы.", chat_name)
         return
 
     events = []

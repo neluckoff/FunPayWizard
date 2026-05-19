@@ -72,9 +72,6 @@ class Runner:
         self.last_messages_ids: dict[int, int] = {}
         """ID последних сообщений в чатах ({ID чата: ID последнего сообщения})."""
 
-        self._skip_empty_preview: dict[int, tuple[str, str]] = {}
-        """Чаты, где превью не менялось и история уже была пустой (не дёргать API лишний раз)."""
-
         self.account: Account = account
         """Экземпляр аккаунта, к которому привязан Runner."""
         self.account.runner = self
@@ -178,18 +175,9 @@ class Runner:
             time_el = chat.find("div", {"class": "contact-item-time"})
             last_msg_time = time_el.text.strip() if time_el else None
             name_el = chat.find("div", {"class": "media-user-name"})
-            if not name_el:
-                continue
-            chat_with = name_el.text.strip()
+            chat_with = name_el.text.strip() if name_el else f"#{chat_id}"
 
-            unread = "unread" in chat.get("class")
-            preview_key = (last_msg_text, last_msg_time or "")
-            if unread:
-                self._skip_empty_preview.pop(chat_id, None)
-            elif self._skip_empty_preview.get(chat_id) == preview_key:
-                continue
-
-            unread = True if unread else False
+            unread = True if "unread" in chat.get("class") else False
             chat_obj = types.ChatShortcut(chat_id, chat_with, last_msg_text, unread, str(chat))
             self.account.add_chats([chat_obj])
             self.last_messages[chat_id] = [last_msg_text, last_msg_time]
@@ -217,15 +205,8 @@ class Runner:
             # [LastChatMessageChanged, NewMSG, NewMSG ..., LastChatMessageChanged, MewMSG, NewMSG ...]
             for i in chats_pack:
                 events.append(i)
-                cid = i.chat.id
-                cid_events = new_msg_events.get(cid) or []
-                if cid_events:
-                    self._skip_empty_preview.pop(cid, None)
-                    events.extend(cid_events)
-                else:
-                    saved = self.last_messages.get(cid)
-                    if saved:
-                        self._skip_empty_preview[cid] = (saved[0], saved[1] or "")
+                if new_msg_events.get(i.chat.id):
+                    events.extend(new_msg_events[i.chat.id])
         return events
 
     def generate_new_message_events(self, chats_data: dict[int, str]) -> dict[int, list[NewMessageEvent]]:
