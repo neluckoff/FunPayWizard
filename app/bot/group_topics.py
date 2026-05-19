@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import logging
 import re
-from threading import Thread
+from threading import Lock, Thread
 
 import telebot.apihelper as tg_api
 
@@ -29,6 +29,7 @@ TOPIC_NAME_MAX_LEN = 128
 class GroupTopicsManager:
     def __init__(self, tg: "TGBot"):
         self.tg = tg
+        self._system_topic_lock = Lock()
         self._data = helpers.load_json_cache(CACHE_PATH, {
             "system_topic_id": None,
             "buyer_topics": {},
@@ -182,32 +183,56 @@ class GroupTopicsManager:
         self._save()
         self._pin_intro_in_topic(chat_id, thread_id)
 
+    def _system_topic_exists(self, chat_id: int, thread_id: int) -> bool:
+        try:
+            self.tg.bot.edit_forum_topic(chat_id, thread_id, SYSTEM_TOPIC_NAME)
+            return True
+        except Exception:
+            logger.debug("Системный топик %s недоступен.", thread_id, exc_info=True)
+            return False
+
+    def _create_system_topic(self, chat_id: int) -> None:
+        create_kwargs = {"icon_color": SYSTEM_TOPIC_ICON_COLOR}
+        star_icon = self._get_star_icon_emoji_id()
+        if star_icon:
+            create_kwargs["icon_custom_emoji_id"] = star_icon
+        topic = self.tg.bot.create_forum_topic(chat_id, SYSTEM_TOPIC_NAME, **create_kwargs)
+        thread_id = topic.message_thread_id
+        self._data["system_topic_id"] = thread_id
+        self._data["pending_pin_thread_id"] = thread_id
+        self._save()
+        logger.info("Создан системный топик «%s» (ID %s).", SYSTEM_TOPIC_NAME, thread_id)
+        self._finalize_system_topic(chat_id, thread_id)
+
     def ensure_system_topic(self) -> None:
         if not self.is_active():
             return
         chat_id = self.group_chat_id()
-        if not self._system_topic_needed():
+        if not chat_id or not self._system_topic_needed():
             return
-        if self._data.get("system_topic_id"):
-            self._update_system_topic_icon(chat_id, self._data["system_topic_id"])
-            return
-        try:
-            self._data["pending_pin_thread_id"] = True
+
+        thread_id = self._data.get("system_topic_id")
+        if thread_id:
+            if self._system_topic_exists(chat_id, thread_id):
+                self._update_system_topic_icon(chat_id, thread_id)
+                return
+            logger.warning(
+                "Сохранённый системный топик (ID %s) не найден — создам новый.", thread_id,
+            )
+            self._data["system_topic_id"] = None
             self._save()
-            create_kwargs = {"icon_color": SYSTEM_TOPIC_ICON_COLOR}
-            star_icon = self._get_star_icon_emoji_id()
-            if star_icon:
-                create_kwargs["icon_custom_emoji_id"] = star_icon
-            topic = self.tg.bot.create_forum_topic(chat_id, SYSTEM_TOPIC_NAME, **create_kwargs)
-            thread_id = topic.message_thread_id
-            self._data["system_topic_id"] = thread_id
-            self._data["pending_pin_thread_id"] = thread_id
-            self._save()
-            logger.info("Создан системный топик «%s» (ID %s).", SYSTEM_TOPIC_NAME, thread_id)
-            self._finalize_system_topic(chat_id, thread_id)
-        except Exception:
-            logger.error("Не удалось создать системный топик в группе.")
-            logger.debug("TRACEBACK", exc_info=True)
+
+        with self._system_topic_lock:
+            thread_id = self._data.get("system_topic_id")
+            if thread_id and self._system_topic_exists(chat_id, thread_id):
+                return
+            try:
+                self._data["pending_pin_thread_id"] = True
+                self._save()
+                self._create_system_topic(chat_id)
+            except Exception:
+                logger.error("Не удалось создать системный топик в группе.")
+                logger.debug("TRACEBACK", exc_info=True)
 
     @staticmethod
     def normalize_group_chat_id(raw: str) -> int | None:
@@ -252,7 +277,8 @@ class GroupTopicsManager:
         self.assistant.MAIN_CFG.set("Telegram", "groupChatId", str(chat_id))
         self.assistant.save_config(self.assistant.MAIN_CFG, "configs/_main.cfg")
         self._data["group_chat_id"] = chat_id
-        self._data["system_topic_id"] = None
+        if old_id != chat_id:
+            self._data["system_topic_id"] = None
         self._save()
 
         self.assistant.MAIN_CFG.set("Telegram", "groupNotificationsEnabled", "1")
@@ -499,7 +525,6 @@ class GroupTopicsManager:
     def send_system_notification(self, text: str, keyboard=None) -> bool:
         if not self.is_active():
             return False
-        self.ensure_group_notifications()
         self.ensure_system_topic()
         thread_id = self._data.get("system_topic_id")
         if not thread_id:
