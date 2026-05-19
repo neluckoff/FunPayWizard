@@ -399,6 +399,9 @@ class Runner:
             self.by_bot_ids[chat_id] = [message_id]
         else:
             self.by_bot_ids[chat_id].append(message_id)
+        prev = self.last_messages_ids.get(chat_id, 0)
+        if message_id > prev:
+            self.last_messages_ids[chat_id] = message_id
 
     def listen(self, requests_delay: int | float = 6.0,
                ignore_exceptions: bool = True) -> Generator[InitialChatEvent | ChatsListChangedEvent |

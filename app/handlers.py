@@ -160,9 +160,17 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
     if c.bl_msg_notification_enabled and chat_name in c.blacklist:
         return
 
+    stack = e.stack.get_stack()
+    has_buyer_in_stack = any(
+        i.message.author_id not in (0, c.account.id) and not i.message.by_bot
+        for i in stack
+    )
+    if not has_buyer_in_stack:
+        return
+
     events = []
     nm, m, f, b = False, False, False, False
-    for i in e.stack.get_stack():
+    for i in stack:
         if i.message.author_id == 0:
             if c.include_fp_msg_enabled:
                 events.append(i)
@@ -189,7 +197,7 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
     last_message_author_id = -1
     last_by_bot = False
     for i in events:
-        message_text = str(e.message)
+        message_text = str(i.message)
         if message_text.strip().lower() in c.AR_CFG.sections() and len(events) < 2:
             continue
         elif message_text.startswith("!автовыдача") and len(events) < 2:
@@ -211,6 +219,9 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
         text += f"{author}{msg_text}\n\n"
         last_message_author_id = i.message.author_id
         last_by_bot = i.message.by_bot
+
+    if not text.strip():
+        return
 
     kb = keyboards.reply(chat_id, chat_name, extend=True)
     gt = c.telegram.group_topics

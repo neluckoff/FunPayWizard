@@ -323,11 +323,11 @@ class GroupTopicsManager:
         logger.info("Создан системный топик «%s» (ID %s).", SYSTEM_TOPIC_NAME, thread_id)
         self._finalize_system_topic(chat_id, thread_id)
 
-    def ensure_system_topic(self) -> None:
+    def ensure_system_topic(self, force: bool = False) -> None:
         if not self.is_active():
             return
         chat_id = self.group_chat_id()
-        if not chat_id or not self._system_topic_needed():
+        if not chat_id or (not force and not self._system_topic_needed()):
             return
 
         self._sync_system_topic_storage()
@@ -853,8 +853,17 @@ class GroupTopicsManager:
     def send_system_notification(self, text: str, keyboard=None) -> bool:
         if not self.is_active():
             return False
-        self.ensure_system_topic()
+        gid = self.group_chat_id()
+        if not gid:
+            return False
+
+        self.ensure_system_topic(force=True)
         thread_id = self._data.get("system_topic_id")
+        if not thread_id:
+            found = self._find_existing_system_topic(gid)
+            if found:
+                self._bind_system_topic(found)
+                thread_id = found
         if not thread_id:
             return False
 
@@ -862,7 +871,7 @@ class GroupTopicsManager:
         if keyboard is not None:
             kwargs["reply_markup"] = keyboard
         try:
-            self.tg.bot.send_message(self.group_chat_id(), text, **kwargs)
+            self.tg.bot.send_message(gid, text, **kwargs)
             return True
         except Exception:
             logger.error("Не удалось отправить уведомление в системный топик.")

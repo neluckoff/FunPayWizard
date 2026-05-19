@@ -1456,6 +1456,38 @@ class TGBot:
                 logger.error(_("log_tg_notification_error", chat_id))
                 logger.debug("TRACEBACK", exc_info=True)
 
+    def _send_group_notification(self, text: str | None, keyboard, notification_type: str,
+                                 photo: bytes | None, pin: bool, kwargs: dict) -> None:
+        """Все уведомления в группу — в личку ничего не уходит."""
+        n = helpers.NotificationTypes
+        if not self.is_notification_enabled_globally(notification_type):
+            return
+
+        if notification_type in (n.review, n.order_confirmed):
+            if not self.group_topics.try_route_notification(text, keyboard, notification_type, photo):
+                logger.error(
+                    "Не удалось отправить уведомление «%s» в системный топик группы.",
+                    notification_type,
+                )
+            return
+
+        if notification_type in (n.new_message, n.bot_start):
+            return
+
+        gid = self.group_topics.group_chat_id()
+        if not gid:
+            return
+        try:
+            if photo:
+                msg = self.bot.send_photo(gid, photo, text, **kwargs)
+            else:
+                msg = self.bot.send_message(gid, text, **kwargs)
+            if pin:
+                self.bot.pin_chat_message(gid, msg.message_id)
+        except Exception:
+            logger.error(_("log_tg_notification_error", gid))
+            logger.debug("TRACEBACK", exc_info=True)
+
     def send_notification(self, text: str | None, keyboard=None,
                           notification_type: str = helpers.NotificationTypes.other, photo: bytes | None = None,
                           pin: bool = False):
@@ -1472,23 +1504,14 @@ class TGBot:
         if keyboard is not None:
             kwargs["reply_markup"] = keyboard
 
-        n = helpers.NotificationTypes
-        system_routed = False
-        if (
-            self.group_topics.is_active()
-            and self.group_notifications_enabled()
-            and notification_type in (n.review, n.order_confirmed)
-        ):
-            system_routed = self.group_topics.try_route_notification(
-                text, keyboard, notification_type, photo,
-            )
+        if self.group_notifications_enabled():
+            self._send_group_notification(text, keyboard, notification_type, photo, pin, kwargs)
+            return
 
         for chat_id in self.notification_settings:
             if self._is_group_chat_key(chat_id):
                 continue
             if not self.is_notification_enabled(chat_id, notification_type):
-                continue
-            if system_routed and notification_type in (n.review, n.order_confirmed):
                 continue
 
             try:
@@ -1505,23 +1528,6 @@ class TGBot:
             except Exception:
                 logger.error(_("log_tg_notification_error", chat_id))
                 logger.debug("TRACEBACK", exc_info=True)
-
-        if (
-            self.group_topics.is_active()
-            and self.group_notifications_enabled()
-            and notification_type not in (n.review, n.order_confirmed, n.new_message, n.bot_start)
-            and self.is_notification_enabled_globally(notification_type)
-        ):
-            gid = self.group_topics.group_chat_id()
-            if gid:
-                try:
-                    if photo:
-                        self.bot.send_photo(gid, photo, text, **kwargs)
-                    else:
-                        self.bot.send_message(gid, text, **kwargs)
-                except Exception:
-                    logger.error(_("log_tg_notification_error", gid))
-                    logger.debug("TRACEBACK", exc_info=True)
 
     def add_command_to_menu(self, command: str, help_text: str) -> None:
         """
