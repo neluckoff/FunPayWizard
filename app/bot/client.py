@@ -866,7 +866,7 @@ class TGBot:
     # Чат FunPay
     def act_send_funpay_message(self, c: CallbackQuery):
         """
-        Активирует режим ввода сообщения для отправки его в чат FunPay.
+        Открывает топик покупателя в группе или активирует ввод ответа в FunPay (без топиков).
         """
         split = c.data.split(":")
         node_id = int(split[1])
@@ -874,7 +874,14 @@ class TGBot:
             username = split[2]
         except IndexError:
             username = None
-        result = self.bot.send_message(c.message.chat.id, _("enter_msg_text"),  reply_markup=presets.CLEAR_STATE_BTN())
+
+        if self.group_topics.is_active() and username:
+            if self.group_topics.open_buyer_topic_for_reply(node_id, username, c.from_user.id):
+                self.bot.answer_callback_query(c.id, _("gt_topic_open_alert"))
+                return
+            self.bot.answer_callback_query(c.id, _("gt_topic_open_failed"), show_alert=True)
+
+        result = self.bot.send_message(c.message.chat.id, _("enter_msg_text"), reply_markup=presets.CLEAR_STATE_BTN())
         self.set_state(c.message.chat.id, result.id, c.from_user.id,
                        cb.SEND_FP_MESSAGE, {"node_id": node_id, "username": username})
         self.bot.answer_callback_query(c.id)

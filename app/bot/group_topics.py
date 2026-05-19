@@ -10,7 +10,7 @@ from threading import Thread
 
 import telebot.apihelper as tg_api
 
-from telebot.types import Message, ForumTopic
+from telebot.types import Message, ForumTopic, InlineKeyboardMarkup as K, InlineKeyboardButton as B
 
 from app.bot import helpers, keyboards
 from app.constants import translate as _
@@ -405,6 +405,58 @@ class GroupTopicsManager:
             if text.startswith("!автовыдача"):
                 return True
         return False
+
+    @staticmethod
+    def forum_topic_link(group_chat_id: int, thread_id: int) -> str:
+        raw = str(group_chat_id)
+        if raw.startswith("-100"):
+            internal = raw[4:]
+        else:
+            internal = raw.lstrip("-")
+        return f"https://t.me/c/{internal}/{thread_id}"
+
+    def open_buyer_topic_for_reply(self, fp_chat_id: int, username: str, admin_user_id: int) -> bool:
+        """
+        Создаёт топик покупателя при необходимости и отправляет админу ссылку на топик.
+        """
+        if not self.is_active():
+            return False
+
+        thread_id = self._get_or_create_buyer_topic(fp_chat_id, username)
+        if not thread_id:
+            return False
+
+        gid = self.group_chat_id()
+        if not gid:
+            return False
+
+        try:
+            self.tg.bot.send_message(
+                gid,
+                f"💬 <b>{helpers.escape(username)}</b> · <a href=\"https://funpay.com/chat/?node={fp_chat_id}\">FunPay</a>",
+                message_thread_id=thread_id,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            logger.warning("Не удалось отправить якорь в топик %s.", username)
+            logger.debug("TRACEBACK", exc_info=True)
+
+        link = self.forum_topic_link(gid, thread_id)
+        markup = K().add(B(_("gt_open_topic_btn"), url=link))
+        try:
+            self.tg.bot.send_message(
+                admin_user_id,
+                _("gt_topic_opened", helpers.escape(username)),
+                reply_markup=markup,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            return True
+        except Exception:
+            logger.error("Не удалось отправить ссылку на топик администратору %s.", admin_user_id)
+            logger.debug("TRACEBACK", exc_info=True)
+            return False
 
     def relay_new_message(self, c, fp_chat_id: int, chat_name: str, text: str,
                           events: list) -> bool:
