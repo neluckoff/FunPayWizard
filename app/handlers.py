@@ -214,6 +214,9 @@ def send_new_msg_notification_handler(c: Assistant, e: NewMessageEvent) -> None:
 
     kb = keyboards.reply(chat_id, chat_name, extend=True)
     gt = c.telegram.group_topics
+    if gt.routes_messages_to_group():
+        gt.relay_new_message(c, chat_id, chat_name, text, events)
+        return
     if gt.relay_new_message(c, chat_id, chat_name, text, events):
         return
     Thread(target=c.telegram.send_notification, args=(text, kb, helpers.NotificationTypes.new_message),
