@@ -637,25 +637,22 @@ class TGBot:
             return
 
     def _send_old_orders_to_chat(self, chat_id: int) -> None:
-        new_mes = self.bot.send_message(chat_id, "Сканирую заказы (это может занять какое-то время)...")
+        new_mes = self.bot.send_message(chat_id, _("old_orders_scanning"))
         try:
             orders = helpers.get_all_open_orders(self.assistant.account)
         except Exception:
-            self.bot.edit_message_text("❌ Не удалось получить список заказов.", new_mes.chat.id, new_mes.id)
+            self.bot.edit_message_text(_("old_orders_fetch_error"), new_mes.chat.id, new_mes.id)
             logger.debug("TRACEBACK", exc_info=True)
             return
 
         if not orders:
-            self.bot.edit_message_text("❌ Незакрытых заказов нет.", new_mes.chat.id, new_mes.id)
+            self.bot.edit_message_text(_("old_orders_empty"), new_mes.chat.id, new_mes.id)
             return
 
         orders_text = ", ".join(orders)
-        text = (
-            "Здравствуйте!\n\n"
-            f"Прошу подтвердить выполнение следующих заказов:\n{orders_text}\n\n"
-            "Заранее благодарю,\nС уважением."
-        )
-        self.bot.edit_message_text(f"<code>{helpers.escape(text)}</code>", new_mes.chat.id, new_mes.id)
+        copy_message = helpers.escape(_("old_orders_copy_text", orders_text))
+        text = _("old_orders_result", _("old_orders_ticket_url"), copy_message)
+        self.bot.edit_message_text(text, new_mes.chat.id, new_mes.id, disable_web_page_preview=True)
 
     def send_orders(self, m: telebot.types.Message):
         self._send_old_orders_to_chat(m.chat.id)
