@@ -72,6 +72,9 @@ class Runner:
         self.last_messages_ids: dict[int, int] = {}
         """ID последних сообщений в чатах ({ID чата: ID последнего сообщения})."""
 
+        self._skip_empty_preview: dict[int, tuple[str, str]] = {}
+        """Чаты, где превью не менялось и история уже была пустой (не дёргать API лишний раз)."""
+
         self.account: Account = account
         """Экземпляр аккаунта, к которому привязан Runner."""
         self.account.runner = self
@@ -172,13 +175,21 @@ class Runner:
             last_msg_text = last_msg_text.text
             if last_msg_text.startswith(self.account.bot_character):
                 last_msg_text = last_msg_text[1:]
-            last_msg_time = chat.find("div", {"class": "contact-item-time"}).text
+            time_el = chat.find("div", {"class": "contact-item-time"})
+            last_msg_time = time_el.text.strip() if time_el else None
+            name_el = chat.find("div", {"class": "media-user-name"})
+            if not name_el:
+                continue
+            chat_with = name_el.text.strip()
 
             unread = "unread" in chat.get("class")
-            # Не пропускаем чат при том же тексте превью — иначе теряется ответ покупателя
-            # с тем же текстом, что у продавца. Новые сообщения отсекает last_messages_ids.
+            preview_key = (last_msg_text, last_msg_time or "")
+            if unread:
+                self._skip_empty_preview.pop(chat_id, None)
+            elif self._skip_empty_preview.get(chat_id) == preview_key:
+                continue
+
             unread = True if unread else False
-            chat_with = chat.find("div", {"class": "media-user-name"}).text
             chat_obj = types.ChatShortcut(chat_id, chat_with, last_msg_text, unread, str(chat))
             self.account.add_chats([chat_obj])
             self.last_messages[chat_id] = [last_msg_text, last_msg_time]
@@ -206,8 +217,15 @@ class Runner:
             # [LastChatMessageChanged, NewMSG, NewMSG ..., LastChatMessageChanged, MewMSG, NewMSG ...]
             for i in chats_pack:
                 events.append(i)
-                if new_msg_events.get(i.chat.id):
-                    events.extend(new_msg_events[i.chat.id])
+                cid = i.chat.id
+                cid_events = new_msg_events.get(cid) or []
+                if cid_events:
+                    self._skip_empty_preview.pop(cid, None)
+                    events.extend(cid_events)
+                else:
+                    saved = self.last_messages.get(cid)
+                    if saved:
+                        self._skip_empty_preview[cid] = (saved[0], saved[1] or "")
         return events
 
     def generate_new_message_events(self, chats_data: dict[int, str]) -> dict[int, list[NewMessageEvent]]:
@@ -271,7 +289,7 @@ class Runner:
                                 if not temp:
                                     temp.append(i)
                                 break
-                        elif i.text[:250] == init_msg_text:
+                        elif i.text and i.text[:250] == init_msg_text:
                             break
                         temp.append(i)
                     messages = list(reversed(temp))
@@ -287,7 +305,9 @@ class Runner:
             # (последнее сообщение оставить)
             filtered_messages = [messages[0]]  # Добавляем первый элемент
             for i in range(1, len(messages)):
-                if messages[i].text != messages[i - 1].text or messages[i].author_id != messages[i - 1].author_id:
+                prev_text = messages[i - 1].text or ""
+                cur_text = messages[i].text or ""
+                if cur_text != prev_text or messages[i].author_id != messages[i - 1].author_id:
                     filtered_messages.append(messages[i])
             messages[:] = filtered_messages  # Изменяем список на новый
             
