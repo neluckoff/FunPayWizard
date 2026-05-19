@@ -638,29 +638,60 @@ class TGBot:
 
     def _send_old_orders_to_chat(self, chat_id: int) -> None:
         new_mes = self.bot.send_message(chat_id, _("old_orders_scanning"))
+        if not self.assistant.account:
+            try:
+                self.bot.edit_message_text(_("setup_in_progress"), new_mes.chat.id, new_mes.id)
+            except Exception:
+                pass
+            return
         try:
             orders = helpers.get_all_open_orders(self.assistant.account)
         except Exception:
-            self.bot.edit_message_text(_("old_orders_fetch_error"), new_mes.chat.id, new_mes.id)
+            try:
+                self.bot.edit_message_text(_("old_orders_fetch_error"), new_mes.chat.id, new_mes.id)
+            except Exception:
+                pass
             logger.debug("TRACEBACK", exc_info=True)
             return
 
         if not orders:
-            self.bot.edit_message_text(_("old_orders_empty"), new_mes.chat.id, new_mes.id)
+            try:
+                self.bot.edit_message_text(_("old_orders_empty"), new_mes.chat.id, new_mes.id)
+            except Exception:
+                pass
             return
 
         orders_text = ", ".join(orders)
         copy_message = helpers.escape(_("old_orders_copy_text", orders_text))
         text = _("old_orders_result", _("old_orders_ticket_url"), copy_message)
-        self.bot.edit_message_text(text, new_mes.chat.id, new_mes.id, disable_web_page_preview=True)
+        if len(text) > 4096:
+            text = text[:4070] + "\n…"
+
+        try:
+            self.bot.edit_message_text(
+                text, new_mes.chat.id, new_mes.id,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            logger.debug("edit_message_text old_orders failed, sending new message.", exc_info=True)
+            try:
+                self.bot.send_message(
+                    chat_id, text,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
+            except Exception:
+                logger.error("Не удалось отправить список старых заказов в чат %s.", chat_id)
+                logger.debug("TRACEBACK", exc_info=True)
 
     def send_orders(self, m: telebot.types.Message):
-        self._send_old_orders_to_chat(m.chat.id)
+        Thread(target=self._send_old_orders_to_chat, args=(m.chat.id,), daemon=True).start()
 
     def open_menu_old_orders(self, c: CallbackQuery):
         """Старые заказы из главного меню."""
         self.bot.answer_callback_query(c.id)
-        self._send_old_orders_to_chat(c.message.chat.id)
+        Thread(target=self._send_old_orders_to_chat, args=(c.message.chat.id,), daemon=True).start()
 
     def act_manual_delivery_test(self, m: Message):
         """
@@ -1207,6 +1238,9 @@ class TGBot:
         """
         #
         section = c.data.split(":")[1]
+        if section == "mv" and self.group_topics.is_active():
+            self.open_deep_settings(c)
+            return
         pm_chat_id = self.primary_notification_chat_id() or c.message.chat.id
         sections = {
             "main": (_("desc_gs"), kb.main_settings, [self.assistant]),

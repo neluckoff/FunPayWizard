@@ -121,9 +121,10 @@ def deep_settings_sections(c: Assistant) -> K:
     ).row(
         B(_("mm_review_reminder"), callback_data=f"{cb.CATEGORY}:rm"),
         B(_("mm_review_reply"), callback_data=f"{cb.CATEGORY}:rr"),
-    ).add(
-        B(_("mm_new_msg_view"), callback_data=f"{cb.CATEGORY}:mv"),
-    ).add(
+    )
+    if not (c.telegram and c.telegram.group_topics.is_active()):
+        kb.add(B(_("mm_new_msg_view"), callback_data=f"{cb.CATEGORY}:mv"))
+    kb.add(
         B(_("mm_configs"), callback_data="config_loader"),
     ).add(
         B(_("gl_back"), callback_data=cb.MAIN),

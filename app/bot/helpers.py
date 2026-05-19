@@ -482,12 +482,17 @@ def get_all_open_orders(acc: Account) -> list[str]:
     :param acc: экземпляр аккаунта.
     :return: список ID заказов.
     """
-    start_from = ""
-    open_orders = []
-    while start_from is not None:
-        result = get_orders(acc, start_from)
-        start_from = result[0]
-        open_orders.extend(result[1])
+    start_from: str | None = None
+    open_orders: list[str] = []
+    while True:
+        next_from, batch = get_orders(acc, start_from or "")
+        open_orders.extend(batch)
+        if not next_from:
+            break
+        if next_from == start_from:
+            logger.warning("get_all_open_orders: повтор continue=%s, остановка.", next_from)
+            break
+        start_from = next_from
         time.sleep(1)
     return open_orders
 
