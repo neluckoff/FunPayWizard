@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Чат FunPayWizard
+    url: https://t.me/FunPayWizard
+    about: Вопросы и обсуждения
+  - name: Группа поддержки
+    url: https://t.me/+Z3Fgq6YXytk1ODEy
+    about: Помощь по настройке FunPayWizard
+  - name: Документация
+    url: https://github.com/neluckoff/FunPayWizard/blob/main/docs/README.md
+    about: Быстрый старт и конфиги

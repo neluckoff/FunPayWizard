@@ -1,0 +1,13 @@
+version: '3.3'
+
+services:
+  funpay-wizard:
+    image: neluckoff/funpay-wizard
+    build: ./
+    container_name: funpay-wizard
+    restart: unless-stopped
+    tty: true
+    volumes:
+      - ./configs:/app/configs
+      - ./storage:/app/storage
+      - ./logs:/app/logs

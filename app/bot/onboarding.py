@@ -1,0 +1,156 @@
+"""
+Первичная настройка через Telegram-бот.
+"""
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+from telebot.types import Message, CallbackQuery, InlineKeyboardMarkup as K, InlineKeyboardButton as B
+
+import logging
+
+from app.bot import callbacks as cb, helpers
+from app.constants import translate as _
+from app.setup import is_setup_required
+
+logger = logging.getLogger("TGBot")
+
+if TYPE_CHECKING:
+    from app.bot.client import TGBot
+
+
+def _skip_ua_kb() -> K:
+    return K().add(B(_("setup_skip_ua"), callback_data=cb.SETUP_SKIP_UA))
+
+
+def _group_topics_kb() -> K:
+    return K().row(
+        B(_("setup_gt_yes"), None, cb.SETUP_GROUP_TOPICS_YES),
+        B(_("setup_gt_no"), None, cb.SETUP_GROUP_TOPICS_NO),
+    )
+
+
+class SetupWizard:
+    SETUP_STATES = frozenset({cb.SETUP_GOLDEN_KEY, cb.SETUP_USER_AGENT, cb.SETUP_SECRET_KEY})
+
+    def __init__(self, tg: "TGBot"):
+        self.tg = tg
+
+    def start(self, m: Message) -> None:
+        """Начинает или перезапускает мастер настройки."""
+        if m.chat.type != "private":
+            return
+        self.tg.clear_state(m.chat.id, m.from_user.id)
+        self._begin(m)
+
+    def handle_message(self, m: Message) -> None:
+        if m.chat.type != "private":
+            return
+
+        cmd = (m.text or "").strip().split()[0].split("@")[0] if m.text else ""
+        if cmd == "/start":
+            self.start(m)
+            return
+
+        state = self.tg.get_state(m.chat.id, m.from_user.id)
+        if state is None:
+            if is_setup_required(self.tg.assistant.MAIN_CFG):
+                self._begin(m)
+            return
+
+        step = state["state"]
+        if step == cb.SETUP_GOLDEN_KEY:
+            self._on_golden_key(m)
+        elif step == cb.SETUP_USER_AGENT:
+            self._on_user_agent(m, skip=False)
+        elif step == cb.SETUP_SECRET_KEY:
+            self._on_secret_key(m)
+
+    def handle_skip_user_agent(self, c: CallbackQuery) -> None:
+        self.tg.bot.answer_callback_query(c.id)
+        fake = type("Msg", (), {"chat": c.message.chat, "from_user": c.from_user, "text": ""})()
+        self._on_user_agent(fake, skip=True)
+
+    def handle_group_topics_choice(self, c: CallbackQuery, enable: bool) -> None:
+        self.tg.bot.answer_callback_query(c.id)
+        self.tg.assistant.awaiting_setup_group_topics = False
+        self.tg.group_topics.set_enabled(enable)
+        if enable:
+            self.tg.assistant.awaiting_setup_group_link = True
+            self.tg.assistant.setup_notify_chat_id = c.message.chat.id
+            self.tg.bot.send_message(c.message.chat.id, _("setup_gt_instructions"))
+            logger.info(
+                "Ожидание привязки группы после настройки (пользователь %s, ID: %s).",
+                c.from_user.username, c.from_user.id,
+            )
+            return
+        self.tg.assistant.awaiting_setup_group_link = False
+        self.tg.assistant.setup_notify_chat_id = None
+        self.tg.bot.send_message(c.message.chat.id, _("setup_done"))
+        logger.info(
+            "Первичная настройка завершена (группа отключена) пользователем %s (ID: %s).",
+            c.from_user.username, c.from_user.id,
+        )
+
+    def _begin(self, m: Message) -> None:
+        cfg = self.tg.assistant.MAIN_CFG
+        golden = cfg["FunPay"]["golden_key"].strip()
+
+        if len(golden) != 32:
+            self.tg.bot.send_message(m.chat.id, _("setup_welcome"))
+            self.tg.set_state(m.chat.id, m.message_id, m.from_user.id, cb.SETUP_GOLDEN_KEY)
+            return
+
+        msg = self.tg.bot.send_message(
+            m.chat.id, _("setup_user_agent_prompt"), reply_markup=_skip_ua_kb())
+        self.tg.set_state(m.chat.id, msg.message_id, m.from_user.id, cb.SETUP_USER_AGENT)
+
+    def _on_golden_key(self, m: Message) -> None:
+        key = (m.text or "").strip()
+        if len(key) != 32:
+            self.tg.bot.send_message(m.chat.id, _("setup_golden_key_invalid"))
+            return
+
+        self.tg.assistant.MAIN_CFG.set("FunPay", "golden_key", key)
+        self.tg.assistant.save_config(self.tg.assistant.MAIN_CFG, "configs/_main.cfg")
+        self.tg.clear_state(m.chat.id, m.from_user.id)
+
+        msg = self.tg.bot.send_message(
+            m.chat.id, _("setup_user_agent_prompt"), reply_markup=_skip_ua_kb())
+        self.tg.set_state(m.chat.id, msg.message_id, m.from_user.id, cb.SETUP_USER_AGENT)
+
+    def _on_user_agent(self, m: Message, skip: bool) -> None:
+        if not skip:
+            ua = (getattr(m, "text", None) or "").strip()
+            if ua:
+                self.tg.assistant.MAIN_CFG.set("FunPay", "user_agent", ua)
+                self.tg.assistant.save_config(self.tg.assistant.MAIN_CFG, "configs/_main.cfg")
+
+        self.tg.clear_state(m.chat.id, m.from_user.id)
+        msg = self.tg.bot.send_message(m.chat.id, _("setup_secret_key_prompt"))
+        self.tg.set_state(m.chat.id, msg.message_id, m.from_user.id, cb.SETUP_SECRET_KEY)
+
+    def _on_secret_key(self, m: Message) -> None:
+        password = (m.text or "").strip()
+        if len(password) < 4:
+            self.tg.bot.send_message(m.chat.id, _("setup_secret_key_invalid"))
+            return
+
+        self.tg.assistant.MAIN_CFG.set("Telegram", "secretKey", password)
+        self.tg.assistant.save_config(self.tg.assistant.MAIN_CFG, "configs/_main.cfg")
+
+        user_id = m.from_user.id
+        if user_id not in self.tg.authorized_users:
+            self.tg.authorized_users.append(user_id)
+            helpers.save_authorized_users(self.tg.authorized_users)
+
+        chat_id = str(m.chat.id)
+        if chat_id not in self.tg.notification_settings:
+            self.tg.notification_settings[chat_id] = {
+                helpers.NotificationTypes.ad: 1,
+                helpers.NotificationTypes.announcement: 1,
+            }
+            helpers.save_notification_settings(self.tg.notification_settings)
+
+        self.tg.clear_state(m.chat.id, m.from_user.id, del_msg=False)
+        self.tg.assistant.awaiting_setup_group_topics = True
+        self.tg.bot.send_message(m.chat.id, _("setup_group_topics_prompt"), reply_markup=_group_topics_kb())

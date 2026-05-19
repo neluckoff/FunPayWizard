@@ -1,0 +1,14 @@
+/venv
+/venv2
+__pycache__
+/.idea
+/api/__pycache__
+/app/**/__pycache__
+/logs
+/storage
+/configs
+.env
+/build
+/dist
+/other
+/.vendor

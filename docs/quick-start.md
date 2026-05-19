@@ -1,0 +1,65 @@
+# Быстрый старт
+
+## Требования
+
+- Python **3.9+** (рекомендуется 3.10–3.11)
+- Аккаунт [FunPay](https://funpay.com) и [golden key](https://funpay.com/account/settings)
+- Telegram-бот от [@BotFather](https://t.me/BotFather)
+
+## Шаги
+
+### 1. Клонировать и установить зависимости
+
+```bash
+git clone https://github.com/neluckoff/FunPayWizard.git
+cd FunPayWizard
+pip install -r requirements.txt
+```
+
+### 2. Токен Telegram
+
+```bash
+cp .env.example .env
+```
+
+Открой `.env` и укажи:
+
+```env
+TELEGRAM_BOT_TOKEN=123456789:ваш_токен_от_BotFather
+```
+
+Токен можно также прописать в `configs/_main.cfg` после первого запуска.
+
+### 3. Запуск
+
+```bash
+python main.py
+```
+
+Windows: `Start.bat` после установки зависимостей.
+
+### 4. Настройка в Telegram
+
+1. Напиши боту `/start`
+2. Введи **golden key** (32 символа)
+3. User-Agent — по желанию или «Пропустить»
+4. Задай **пароль администратора** (минимум 4 символа)
+5. Выбери, нужна ли **группа с топиками**:
+   - **Нет** — настройка завершится сразу
+   - **Да** — привяжи супергруппу (см. [group-topics.md](group-topics.md)), затем придёт сообщение о завершении
+
+### 5. Панель управления
+
+В личке с ботом: `/menu` или кнопка **Меню**.
+
+Разделы:
+
+- **Переключатели** — автовыдача, автоответ, поднятие лотов и т.д.
+- **Уведомления** — типы событий для каждого чата
+- **Глубокие настройки** — автоответ, автовыдача, шаблоны, группа, конфиги
+
+## Что дальше
+
+- [configuration.md](configuration.md) — тонкая настройка
+- [telegram.md](telegram.md) — команды и уведомления
+- [installation.md](installation.md) — Docker и сервер

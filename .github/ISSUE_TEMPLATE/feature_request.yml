@@ -1,0 +1,37 @@
+name: Предложить функцию
+description: Идея улучшения или новой возможности
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу решаем?
+      description: Что сейчас неудобно или чего не хватает?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое решение
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативы
+      description: Как обходите проблему сейчас?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - FunPay / API
+        - Telegram-бот
+        - Группа с топиками
+        - Автовыдача / автоответ
+        - Документация
+        - Другое

@@ -1,0 +1,1 @@
+"""FunPayWizard application package."""

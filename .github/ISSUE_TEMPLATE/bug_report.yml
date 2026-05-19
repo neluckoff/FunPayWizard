@@ -1,0 +1,75 @@
+name: Сообщить об ошибке
+description: Баг, падение, некорректная работа FunPayWizard
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    value: |
+      Перед отправкой проверь [документацию](https://github.com/neluckoff/FunPayWizard/tree/main/docs) и [чат](https://t.me/FunPayWizard).
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия FunPayWizard
+      placeholder: "0.1.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: ОС
+      options:
+        - Windows
+        - Linux
+        - macOS
+        - Docker
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Версия Python
+      placeholder: "3.11.x"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги для воспроизведения
+      placeholder: |
+        1. Запустил main.py
+        2. В Telegram нажал ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: Фрагмент из `logs/` или консоли (без golden key и токенов!)
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Подтверждение
+      options:
+        - label: Я убрал из отчёта токены, golden key и пароли
+          required: true
