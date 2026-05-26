@@ -750,49 +750,59 @@ class GroupTopicsManager:
             buyer.pop("templates_msg_id", None)
             self._save()
 
+    def _lookup_buyer_topic(self, fp_chat_id: int, username: str) -> int | None:
+        """Находит существующий топик покупателя (кэш или сканирование), без создания."""
+        if not self.group_chat_id():
+            return None
+
+        with self._buyer_topics_lock:
+            key = str(fp_chat_id)
+            existing = self._buyers().get(key)
+            if existing and existing.get("thread_id"):
+                existing["username"] = username
+                self._save()
+                return int(existing["thread_id"])
+
+            found = self._find_buyer_topic_by_username(username)
+            if not found:
+                return None
+
+            found_fp, thread_id = found
+            if found_fp is not None and found_fp != fp_chat_id:
+                logger.info(
+                    "Найден топик покупателя %s (thread %s), привязываю к чату %s.",
+                    username, thread_id, fp_chat_id,
+                )
+            self._register_buyer_topic(fp_chat_id, username, thread_id)
+            return thread_id
+
     def _get_or_create_buyer_topic(self, fp_chat_id: int, username: str) -> int | None:
         gid = self.group_chat_id()
         if not gid:
             return None
 
-        thread_id: int | None = None
+        thread_id = self._lookup_buyer_topic(fp_chat_id, username)
         need_pin = False
-        with self._buyer_topics_lock:
-            key = str(fp_chat_id)
-            existing = self._buyers().get(key)
-            if existing and existing.get("thread_id"):
-                thread_id = int(existing["thread_id"])
-                existing["username"] = username
-                need_pin = not existing.get("pinned_msg_id")
-                self._save()
-            else:
-                found = self._find_buyer_topic_by_username(username)
-                if found:
-                    found_fp, thread_id = found
-                    if found_fp is not None and found_fp != fp_chat_id:
-                        logger.info(
-                            "Найден топик покупателя %s (thread %s), привязываю к чату %s.",
-                            username, thread_id, fp_chat_id,
-                        )
-                    self._register_buyer_topic(fp_chat_id, username, thread_id)
-                    need_pin = not self._buyers().get(key, {}).get("pinned_msg_id")
-                else:
-                    try:
-                        topic: ForumTopic = self.tg.bot.create_forum_topic(
-                            gid, self._topic_title(username),
-                        )
-                        thread_id = topic.message_thread_id
-                    except Exception:
-                        logger.error("Не удалось создать топик для покупателя %s.", username)
-                        logger.debug("TRACEBACK", exc_info=True)
-                        return None
+        if thread_id:
+            buyer = self._buyers().get(str(fp_chat_id), {})
+            need_pin = not buyer.get("pinned_msg_id")
+        else:
+            try:
+                topic: ForumTopic = self.tg.bot.create_forum_topic(
+                    gid, self._topic_title(username),
+                )
+                thread_id = topic.message_thread_id
+            except Exception:
+                logger.error("Не удалось создать топик для покупателя %s.", username)
+                logger.debug("TRACEBACK", exc_info=True)
+                return None
 
-                    self._register_buyer_topic(fp_chat_id, username, thread_id)
-                    need_pin = True
-                    logger.info(
-                        "Создан топик для %s (FunPay chat %s, thread %s).",
-                        username, fp_chat_id, thread_id,
-                    )
+            self._register_buyer_topic(fp_chat_id, username, thread_id)
+            need_pin = True
+            logger.info(
+                "Создан топик для %s (FunPay chat %s, thread %s).",
+                username, fp_chat_id, thread_id,
+            )
 
         if thread_id and need_pin:
             self._ensure_buyer_topic_pin(fp_chat_id, username, thread_id)
@@ -820,20 +830,30 @@ class GroupTopicsManager:
             internal = raw.lstrip("-")
         return f"https://t.me/c/{internal}/{thread_id}"
 
+    def buyer_topic_link_if_exists(self, fp_chat_id: int, username: str) -> str | None:
+        """Ссылка на топик, если он уже есть (без создания)."""
+        if not self.is_active():
+            return None
+        thread_id = self._lookup_buyer_topic(fp_chat_id, username)
+        if not thread_id:
+            return None
+        gid = self.group_chat_id()
+        return self.forum_topic_link(gid, thread_id) if gid else None
+
     def ensure_buyer_topic_link(self, fp_chat_id: int, username: str) -> str | None:
-        """Создаёт/находит топик и возвращает ссылку t.me/c/… для кнопки «Ответить»."""
-        return self.open_buyer_topic_for_reply(fp_chat_id, username)
+        """Совместимость: только существующий топик."""
+        return self.buyer_topic_link_if_exists(fp_chat_id, username)
 
     def open_buyer_topic_for_reply(self, fp_chat_id: int, username: str,
                                   *, ping_text: str | None = None) -> str | None:
         """
-        Создаёт/находит топик покупателя в группе.
+        Находит топик покупателя (не создаёт).
         Возвращает ссылку на топик. Опционально шлёт пинг-сообщение в топик.
         """
         if not self.is_active():
             return None
 
-        thread_id = self._get_or_create_buyer_topic(fp_chat_id, username)
+        thread_id = self._lookup_buyer_topic(fp_chat_id, username)
         if not thread_id:
             return None
 

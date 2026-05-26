@@ -579,7 +579,7 @@ def new_order_kb(c: Assistant, order_id: str, username: str, node_id: int, **kwa
     """Клавиатура заказа: кнопка «Ответить» — прямая ссылка на топик, если группа активна."""
     topic_url = None
     if c.telegram and c.telegram.group_topics.is_active():
-        topic_url = c.telegram.group_topics.ensure_buyer_topic_link(node_id, username)
+        topic_url = c.telegram.group_topics.buyer_topic_link_if_exists(node_id, username)
     return new_order(order_id, username, node_id, buyer_topic_url=topic_url, **kwargs)
 
 
@@ -613,7 +613,7 @@ def reply(node_id: int, username: str, again: bool = False, extend: bool = False
 def reply_kb(c: Assistant, node_id: int, username: str, **kwargs) -> K:
     topic_url = None
     if c.telegram and c.telegram.group_topics.is_active():
-        topic_url = c.telegram.group_topics.ensure_buyer_topic_link(node_id, username)
+        topic_url = c.telegram.group_topics.buyer_topic_link_if_exists(node_id, username)
     return reply(node_id, username, buyer_topic_url=topic_url, **kwargs)
 
 

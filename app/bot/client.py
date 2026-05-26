@@ -908,6 +908,10 @@ class TGBot:
             self.bot.answer_callback_query(c.id, _("gt_no_group_linked"), show_alert=True)
             return
 
+        if not self.group_topics._lookup_buyer_topic(node_id, username):
+            self.bot.answer_callback_query(c.id, _("gt_topic_not_yet"), show_alert=True)
+            return
+
         link = self.group_topics.open_buyer_topic_for_reply(
             node_id, username, ping_text=_("gt_reply_ping"),
         )
