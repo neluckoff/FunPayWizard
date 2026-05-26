@@ -6,6 +6,8 @@ if TYPE_CHECKING:
 from requests_toolbelt import MultipartEncoder
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+
+from api.common.local_time import local_now_naive
 import requests
 import logging
 import random
@@ -1029,7 +1031,7 @@ class Account:
             buyer_id = int(buyer_div.get("data-href")[:-1].split("https://funpay.com/users/")[1])
             subcategory_name = div.find("div", {"class": "text-muted"}).text
 
-            now = datetime.now()
+            now = local_now_naive()
             order_date_text = div.find("div", {"class": "tc-date-time"}).text
             if "сегодня" in order_date_text:  # сегодня, ЧЧ:ММ
                 h, m = order_date_text.split(", ")[1].split(":")

@@ -7,6 +7,8 @@ services:
     container_name: funpay-wizard
     restart: unless-stopped
     tty: true
+    environment:
+      - TZ=Europe/Moscow
     volumes:
       - ./configs:/app/configs
       - ./storage:/app/storage

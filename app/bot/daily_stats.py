@@ -10,6 +10,7 @@ import time
 from threading import Thread
 
 from api.common.enums import OrderStatuses
+from api.common.local_time import get_timezone_name, local_now, local_now_naive
 
 from app.bot import helpers
 from app.constants import translate as _
@@ -38,7 +39,7 @@ def fetch_all_sales(account) -> list:
 
 
 def collect_today_stats(sales: list, now: datetime.datetime | None = None) -> dict:
-    now = now or datetime.datetime.now()
+    now = now or local_now_naive()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     stats = {
@@ -109,10 +110,13 @@ def send_daily_stats(assistant: "Assistant") -> None:
 
 
 def daily_stats_loop(assistant: "Assistant") -> None:
-    logger.info("Запущен цикл вечерней сводки (отправка в %s:00).", REPORT_HOUR)
+    logger.info(
+        "Запущен цикл вечерней сводки (отправка в %s:00, зона %s).",
+        REPORT_HOUR, get_timezone_name(),
+    )
     while True:
         try:
-            now = datetime.datetime.now()
+            now = local_now()
             if now.hour == REPORT_HOUR and not _already_sent_today(now.date()):
                 send_daily_stats(assistant)
                 _mark_sent_today(now.date())
