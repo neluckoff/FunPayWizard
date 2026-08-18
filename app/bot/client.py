@@ -31,7 +31,7 @@ from app.bot import static_assets
 from app.bot.onboarding import SetupWizard
 from app.bot.group_topics import GroupTopicsManager
 from app.utils import assistant_tools
-from app.utils.env import get_telegram_token
+from app.utils.env import get_telegram_proxy_url, get_telegram_token
 from app.constants import translate as _
 from app.setup import is_setup_required
 
@@ -47,13 +47,17 @@ class TGBot:
             raise ValueError(
                 "Не задан токен Telegram-бота. Укажите TELEGRAM_BOT_TOKEN в файле .env"
             )
+
+        tg_proxy = get_telegram_proxy_url(
+            self.assistant.MAIN_CFG["Telegram"].get("proxy", "")
+        )
+        telebot.apihelper.proxy = {"https": tg_proxy} if tg_proxy else None
+        if tg_proxy:
+            logger.info("$CYANTelegram HTTP-прокси включён.")
+
         self.bot = telebot.TeleBot(token, parse_mode="HTML",
                                    allow_sending_without_reply=True, num_threads=5)
         self.setup_wizard = SetupWizard(self)
-
-        tg_proxy = self.assistant.MAIN_CFG["Telegram"].get("proxy", "").strip()
-        if tg_proxy:
-            telebot.apihelper.proxy = {"https": tg_proxy}
 
         self.file_handlers = {}  # хэндлеры, привязанные к получению файла.
         self.attempts = {}  # {user_id: attempts} - попытки авторизации в Telegram ПУ.

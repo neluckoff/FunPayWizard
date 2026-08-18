@@ -1,5 +1,15 @@
 # Telegram-бот
 
+## HTTP-прокси
+
+Telegram Bot API можно использовать через отдельный HTTP(S)-прокси. Добавьте в `.env`:
+
+```dotenv
+TELEGRAM_PROXY_URL=http://login:password@proxy.example.com:8080
+```
+
+Прокси применяется только к Telegram и не меняет соединение с FunPay. Подробности и вариант настройки через `_main.cfg`: [configuration.md#http-прокси-для-telegram](configuration.md#http-прокси-для-telegram).
+
 ## Первый вход
 
 1. `/start` — мастер настройки (если конфиг пустой)

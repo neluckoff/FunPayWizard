@@ -4,7 +4,7 @@
 
 | Путь | Описание |
 |------|----------|
-| `.env` | `TELEGRAM_BOT_TOKEN` (приоритет при старте) |
+| `.env` | `TELEGRAM_BOT_TOKEN` и опциональный `TELEGRAM_PROXY_URL` (приоритет при старте) |
 | `configs/_main.cfg` | FunPay, Telegram, приветствия, ЧС, группа |
 | `configs/auto_response.cfg` | Команды автоответа |
 | `configs/auto_delivery.cfg` | Лоты и автовыдача |
@@ -18,7 +18,7 @@
 Секции:
 
 - **FunPay** — golden key, user-agent, автовыдача, поднятие, восстановление лотов
-- **Telegram** — токен, `groupChatId` (обязателен), `groupTopicsEnabled` / `groupNotificationsEnabled` всегда включены
+- **Telegram** — токен, HTTP(S)-прокси `proxy`, `groupChatId` (обязателен), `groupTopicsEnabled` / `groupNotificationsEnabled` всегда включены
 - **BlockList** — чёрный список и блокировки
 - **Greetings** — приветствие новым покупателям
 - **OrderConfirm** / **ReviewReply** — ответы на подтверждение и отзывы
@@ -26,6 +26,16 @@
 - **Proxy** — опционально
 
 Переключатели в боте: `/menu` → **Переключатели**.
+
+## HTTP-прокси для Telegram
+
+Чтобы направить только обращения бота к Telegram Bot API через прокси, укажите в `.env`:
+
+```dotenv
+TELEGRAM_PROXY_URL=http://login:password@proxy.example.com:8080
+```
+
+Поддерживаются URL со схемой `http://` или `https://`, адресом и портом. Если в логине или пароле есть специальные символы, закодируйте их в URL-формате. Непустая переменная `TELEGRAM_PROXY_URL` имеет приоритет над совместимым параметром `proxy` в секции `[Telegram]` файла `configs/_main.cfg`. Если оба значения пусты, прокси отключён. На запросы к FunPay этот параметр не влияет — для них используется отдельная секция `[Proxy]`.
 
 ## Автоответ (`auto_response.cfg`)
 

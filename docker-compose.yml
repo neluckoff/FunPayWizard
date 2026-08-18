@@ -9,6 +9,7 @@ services:
     tty: true
     environment:
       - TZ=Europe/Moscow
+      - TELEGRAM_PROXY_URL=${TELEGRAM_PROXY_URL:-}
     volumes:
       - ./configs:/app/configs
       - ./storage:/app/storage
