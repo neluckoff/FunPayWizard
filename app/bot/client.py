@@ -33,7 +33,7 @@ from app.bot.group_topics import GroupTopicsManager
 from app.utils import assistant_tools
 from app.utils.env import get_telegram_proxy_url, get_telegram_token
 from app.constants import translate as _
-from app.setup import is_setup_required
+from app.setup import is_group_link_pending, is_setup_required
 
 logger = logging.getLogger("TGBot")
 telebot.apihelper.ENABLE_MIDDLEWARE = True
@@ -366,7 +366,7 @@ class TGBot:
             self.group_topics.on_forum_topic_created(m)
         if m.content_type not in ("text", "photo"):
             return
-        if self.assistant.setup_mode:
+        if self.assistant.setup_mode and not self._group_link_setup_active():
             return
         if not m.from_user or m.from_user.is_bot:
             return
@@ -410,17 +410,26 @@ class TGBot:
         return m.text.strip().split()[0].split("@")[0].lower() == "/start"
 
     def _setup_active(self, chat_id: int, user_id: int) -> bool:
+        if self._group_link_setup_active():
+            return False
         if is_setup_required(self.assistant.MAIN_CFG):
             return True
         state = self.get_state(chat_id, user_id)
         return bool(state and state["state"] in SetupWizard.SETUP_STATES)
+
+    def _group_link_setup_active(self) -> bool:
+        """Мастер ожидает только привязку группы, включая рестарт процесса."""
+        return (
+            self.assistant.awaiting_setup_group_link
+            or is_group_link_pending(self.assistant.MAIN_CFG)
+        )
 
     def handle_start(self, m: Message):
         """Команда /start: мастер настройки или вход в панель."""
         if m.chat.type != "private":
             return
         logger.info("Получена команда /start от %s (ID: %s).", m.from_user.username, m.from_user.id)
-        if self._setup_active(m.chat.id, m.from_user.id):
+        if self.assistant.setup_mode or self._setup_active(m.chat.id, m.from_user.id):
             self.setup_wizard.start(m)
             return
         if m.from_user.id in self.authorized_users:
@@ -772,7 +781,7 @@ class TGBot:
 
     def handle_setup_group_id(self, m: Message) -> None:
         """Привязка группы по ID во время первичной настройки (после выбора «Да»)."""
-        if m.chat.type != "private" or not self.assistant.awaiting_setup_group_link:
+        if m.chat.type != "private" or not self._group_link_setup_active():
             return
         if m.from_user.id not in self.authorized_users:
             return
@@ -1344,7 +1353,7 @@ class TGBot:
             self.handle_setup_group_id,
             func=lambda m: (
                 m.chat.type == "private"
-                and self.assistant.awaiting_setup_group_link
+                and self._group_link_setup_active()
                 and m.from_user.id in self.authorized_users
                 and m.text
                 and re.fullmatch(r"-?\d+", m.text.strip().replace(" ", ""))

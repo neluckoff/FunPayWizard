@@ -10,7 +10,7 @@ import logging
 
 from app.bot import callbacks as cb, helpers, static_assets
 from app.constants import translate as _
-from app.setup import is_setup_required
+from app.setup import is_group_link_pending, is_setup_required
 
 logger = logging.getLogger("TGBot")
 
@@ -75,6 +75,10 @@ class SetupWizard:
             self.tg.set_state(m.chat.id, state_mid, m.from_user.id, cb.SETUP_GOLDEN_KEY)
             return
 
+        if is_group_link_pending(cfg):
+            self._prompt_group_link(m)
+            return
+
         msg = self.tg.bot.send_message(
             m.chat.id, _("setup_user_agent_prompt"), reply_markup=_skip_ua_kb())
         self.tg.set_state(m.chat.id, msg.message_id, m.from_user.id, cb.SETUP_USER_AGENT)
@@ -127,6 +131,10 @@ class SetupWizard:
             helpers.save_notification_settings(self.tg.notification_settings)
 
         self.tg.clear_state(m.chat.id, m.from_user.id, del_msg=False)
+        self._prompt_group_link(m)
+
+    def _prompt_group_link(self, m: Message) -> None:
+        """Переводит мастер на финальный шаг привязки группы."""
         self.tg.group_topics.ensure_group_mode_config()
         self.tg.assistant.awaiting_setup_group_link = True
         self.tg.assistant.setup_notify_chat_id = m.chat.id

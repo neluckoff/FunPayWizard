@@ -105,6 +105,15 @@ def is_setup_required(cfg: ConfigParser) -> bool:
     return False
 
 
+def is_group_link_pending(cfg: ConfigParser) -> bool:
+    """Шаги 1–3 завершены, но группа с топиками ещё не привязана."""
+    return (
+        len(cfg["FunPay"]["golden_key"].strip()) == 32
+        and len(cfg["Telegram"]["secretKey"].strip()) >= 4
+        and not cfg["Telegram"].get("groupChatId", "").strip()
+    )
+
+
 def ensure_config_files() -> None:
     os.makedirs("configs", exist_ok=True)
     for path in ("configs/auto_response.cfg", "configs/auto_delivery.cfg"):
